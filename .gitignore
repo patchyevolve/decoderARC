@@ -1,0 +1,58 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environments
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Test, coverage and cache files
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+.cache/
+*.log
+
+# OS files
+.DS_Store
+*.swp
+*~
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# Environment and secrets
+.env.local
+.env.*.local
+secrets.yml
+credentials.json
+
+# Optional Python bytecode and distribution artifacts
+*.egg
+*.egg-info
+pip-wheel-metadata/
+*.whl
+
+# Local project files
+.local/

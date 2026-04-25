@@ -1,0 +1,432 @@
+
+<style>
+:root { --red:#E24B4A; --amber:#BA7517; --green:#3B6D11; --blue:#185FA5; --teal:#0F6E56; --coral:#993C1D; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans, sans-serif); }
+
+.dash { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+
+.top-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.top-bar h2 { font-size: 15px; font-weight: 500; color: var(--color-text-primary); flex: 1; }
+.badge { font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 500; }
+.badge-live { background: var(--color-background-success); color: var(--color-text-success); }
+.badge-panic { background: var(--color-background-danger); color: var(--color-text-danger); }
+
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.met { background: var(--color-background-secondary); border-radius: 8px; padding: 10px 12px; }
+.met-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; }
+.met-val { font-size: 22px; font-weight: 500; color: var(--color-text-primary); line-height: 1; }
+.met-val.red { color: #E24B4A; }
+.met-val.amber { color: #BA7517; }
+.met-val.green { color: #3B6D11; }
+
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 540px) { .row2 { grid-template-columns: 1fr; } }
+
+.card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: 12px; padding: 12px; }
+.card-title { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .04em; }
+
+/* Pipeline flow */
+.pipeline { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0; }
+.pstage { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 64px; cursor: pointer; }
+.pbox { border-radius: 6px; padding: 6px 8px; font-size: 11px; font-weight: 500; text-align: center; line-height: 1.2; width: 100%; transition: opacity .2s, transform .1s; }
+.pbox:hover { transform: scale(1.04); }
+.pbox.stage-l0    { background: var(--color-background-info);    color: var(--color-text-info); }
+.pbox.stage-l1    { background: var(--color-background-info);    color: var(--color-text-info); }
+.pbox.stage-l2    { background: var(--color-background-info);    color: var(--color-text-info); }
+.pbox.stage-mem   { background: #EAF3DE;                         color: #27500A; }
+.pbox.stage-ret   { background: #EAF3DE;                         color: #27500A; }
+.pbox.stage-reason{ background: var(--color-background-warning);  color: var(--color-text-warning); }
+.pbox.stage-corr  { background: var(--color-background-warning);  color: var(--color-text-warning); }
+.pbox.stage-dec   { background: var(--color-background-danger);   color: var(--color-text-danger); }
+.pbox.lit { box-shadow: 0 0 0 2px currentColor; transform: scale(1.08); }
+.pus { font-size: 10px; color: var(--color-text-secondary); }
+.parr { color: var(--color-text-secondary); font-size: 14px; line-height: 1; flex-shrink: 0; }
+
+/* Alert feed */
+.alert-feed { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.alert-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; padding: 6px 8px; border-radius: 6px; border: 0.5px solid var(--color-border-tertiary); }
+.alert-row.ALERT    { background: #FAEEDA; border-color: #FAC775; }
+.alert-row.BLOCK    { background: #FCEBEB; border-color: #F7C1C1; }
+.alert-row.ESCALATE { background: #FCEBEB; border-color: #E24B4A; }
+.alert-row.LOG      { background: var(--color-background-secondary); }
+.al-dec { font-weight: 500; min-width: 56px; font-size: 11px; }
+.al-dec.BLOCK,.al-dec.ESCALATE { color:#A32D2D; }
+.al-dec.ALERT { color:#854F0B; }
+.al-dec.LOG   { color: var(--color-text-secondary); }
+.al-src { flex: 1; color: var(--color-text-primary); font-family: var(--font-mono, monospace); }
+.al-conf { min-width: 38px; text-align: right; color: var(--color-text-secondary); }
+.al-cls { flex: 1; color: var(--color-text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Shard bar */
+.shards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.shard-card { background: var(--color-background-secondary); border-radius: 8px; padding: 8px; }
+.shard-id { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 4px; }
+.shard-bar-bg { height: 5px; background: var(--color-border-tertiary); border-radius: 3px; }
+.shard-bar-fill { height: 5px; border-radius: 3px; background: #185FA5; transition: width .4s; }
+.shard-num { font-size: 12px; font-weight: 500; margin-top: 4px; color: var(--color-text-primary); }
+
+/* Chart area */
+#throughput-chart { position: relative; height: 120px; }
+
+/* Campaign list */
+.campaign-list { display: flex; flex-direction: column; gap: 5px; }
+.camp-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 5px 8px; background: var(--color-background-secondary); border-radius: 6px; }
+.camp-id { font-family: var(--font-mono, monospace); color: var(--color-text-secondary); min-width: 56px; font-size: 11px; }
+.camp-class { flex: 1; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.camp-ev { font-size: 11px; color: var(--color-text-secondary); }
+.camp-dot { width: 7px; height: 7px; border-radius: 50%; background: #E24B4A; flex-shrink: 0; }
+
+/* Controls */
+.controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding-top: 4px; border-top: 0.5px solid var(--color-border-tertiary); }
+.controls label { font-size: 12px; color: var(--color-text-secondary); }
+.ctl-btn { font-size: 12px; padding: 5px 12px; border: 0.5px solid var(--color-border-secondary); border-radius: 6px; background: transparent; color: var(--color-text-primary); cursor: pointer; }
+.ctl-btn:hover { background: var(--color-background-secondary); }
+.ctl-btn.active { background: var(--color-background-info); color: var(--color-text-info); border-color: var(--color-border-info); }
+
+/* Latency row */
+.lat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.lat-cell { font-size: 11px; color: var(--color-text-secondary); }
+.lat-val { font-size: 14px; font-weight: 500; color: var(--color-text-primary); }
+</style>
+
+<div class="dash">
+  <div class="top-bar">
+    <h2>IDS Live Dashboard</h2>
+    <span class="badge badge-live" id="status-badge">● LIVE</span>
+    <span style="font-size:11px;color:var(--color-text-secondary)" id="uptime-label">0s</span>
+  </div>
+
+  <!-- Metric cards -->
+  <div class="metrics">
+    <div class="met"><div class="met-label">Events/s</div><div class="met-val" id="m-eps">0</div></div>
+    <div class="met"><div class="met-label">Alerts</div><div class="met-val amber" id="m-alerts">0</div></div>
+    <div class="met"><div class="met-label">Blocks</div><div class="met-val red" id="m-blocks">0</div></div>
+    <div class="met"><div class="met-label">Escalations</div><div class="met-val red" id="m-esc">0</div></div>
+    <div class="met"><div class="met-label">Faults</div><div class="met-val" id="m-faults">0</div></div>
+    <div class="met"><div class="met-label">Reasoning %</div><div class="met-val" id="m-reason">0%</div></div>
+    <div class="met"><div class="met-label">Total events</div><div class="met-val green" id="m-total">0</div></div>
+    <div class="met"><div class="met-label">Campaigns</div><div class="met-val" id="m-camps">0</div></div>
+  </div>
+
+  <!-- Pipeline flow -->
+  <div class="card">
+    <div class="card-title">Pipeline — §1.13 routing order</div>
+    <div class="pipeline" id="pipeline-row">
+      <div class="pstage" onclick="sendPrompt('Explain the IDS Level 0 local analyzer in detail')">
+        <div class="pbox stage-l0" id="ps-l0">L0<br>Local</div>
+        <div class="pus" id="pu-l0">0µs</div>
+      </div>
+      <div class="parr">›</div>
+      <div class="pstage" onclick="sendPrompt('How does the IDS segment SSM work?')">
+        <div class="pbox stage-l1" id="ps-l1">L1<br>Segment</div>
+        <div class="pus" id="pu-l1">0µs</div>
+      </div>
+      <div class="parr">›</div>
+      <div class="pstage" onclick="sendPrompt('How does the IDS hierarchical SSM promotion work?')">
+        <div class="pbox stage-l2" id="ps-l2">L2<br>Hierarchy</div>
+        <div class="pus" id="pu-l2">0µs</div>
+      </div>
+      <div class="parr">›</div>
+      <div class="pstage" onclick="sendPrompt('How does the IDS memory write policy work?')">
+        <div class="pbox stage-mem" id="ps-mem">Memory<br>Write</div>
+        <div class="pus" id="pu-mem">0µs</div>
+      </div>
+      <div class="parr">›</div>
+      <div class="pstage" onclick="sendPrompt('How does the IDS scoped retrieval work?')">
+        <div class="pbox stage-ret" id="ps-ret">Retrieval</div>
+        <div class="pus" id="pu-ret">0µs</div>
+      </div>
+      <div class="parr">›</div>
+      <div class="pstage" onclick="sendPrompt('How does the IDS multi-signal reasoning gate work?')">
+        <div class="pbox stage-reason" id="ps-reason">Reasoning</div>
+        <div class="pus" id="pu-reason">0µs</div>
+      </div>
+      <div class="parr">›</div>
+      <div class="pstage" onclick="sendPrompt('How does the IDS correlation engine detect campaigns?')">
+        <div class="pbox stage-corr" id="ps-corr">Corr.</div>
+        <div class="pus" id="pu-corr">0µs</div>
+      </div>
+      <div class="parr">›</div>
+      <div class="pstage" onclick="sendPrompt('How does the IDS decision engine work?')">
+        <div class="pbox stage-dec" id="ps-dec">Decision</div>
+        <div class="pus" id="pu-dec">0µs</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <!-- Throughput chart -->
+    <div class="card">
+      <div class="card-title">Throughput (events/s)</div>
+      <div id="throughput-chart"><canvas id="tp-canvas"></canvas></div>
+    </div>
+    <!-- Shard load -->
+    <div class="card">
+      <div class="card-title">Shard load (4 shards)</div>
+      <div class="shards" id="shard-grid">
+        <div class="shard-card"><div class="shard-id">Shard 0</div><div class="shard-bar-bg"><div class="shard-bar-fill" id="sb0" style="width:0%"></div></div><div class="shard-num" id="sn0">0 ev/s</div></div>
+        <div class="shard-card"><div class="shard-id">Shard 1</div><div class="shard-bar-bg"><div class="shard-bar-fill" id="sb1" style="width:0%"></div></div><div class="shard-num" id="sn1">0 ev/s</div></div>
+        <div class="shard-card"><div class="shard-id">Shard 2</div><div class="shard-bar-bg"><div class="shard-bar-fill" id="sb2" style="width:0%"></div></div><div class="shard-num" id="sn2">0 ev/s</div></div>
+        <div class="shard-card"><div class="shard-id">Shard 3</div><div class="shard-bar-bg"><div class="shard-bar-fill" id="sb3" style="width:0%"></div></div><div class="shard-num" id="sn3">0 ev/s</div></div>
+      </div>
+      <div class="lat-grid" style="margin-top:10px">
+        <div class="lat-cell">L0 avg<div class="lat-val" id="lat-l0">—</div></div>
+        <div class="lat-cell">Reasoning<div class="lat-val" id="lat-r">—</div></div>
+        <div class="lat-cell">Retrieval<div class="lat-val" id="lat-ret">—</div></div>
+        <div class="lat-cell">Total<div class="lat-val" id="lat-tot">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <!-- Alert feed -->
+    <div class="card">
+      <div class="card-title">Alert feed</div>
+      <div class="alert-feed" id="alert-feed"></div>
+    </div>
+    <!-- Active campaigns -->
+    <div class="card">
+      <div class="card-title">Active campaigns</div>
+      <div class="campaign-list" id="campaign-list">
+        <div style="font-size:12px;color:var(--color-text-secondary)">No campaigns detected</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <label>Simulate:</label>
+    <button class="ctl-btn active" id="btn-normal" onclick="setMode('normal')">Normal traffic</button>
+    <button class="ctl-btn" id="btn-dos" onclick="setMode('dos')">DoS burst</button>
+    <button class="ctl-btn" id="btn-apt" onclick="setMode('apt')">APT slow</button>
+    <button class="ctl-btn" id="btn-brute" onclick="setMode('brute')">Brute force</button>
+    <button class="ctl-btn" id="btn-multi" onclick="setMode('multi')">Multi-stage</button>
+    <div style="flex:1"></div>
+    <button class="ctl-btn" onclick="sendPrompt('How do I connect the IDS to real network traffic?')">Connect to real traffic ↗</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const STAGES = ['l0','l1','l2','mem','ret','reason','corr','dec'];
+const STAGE_NAMES = {l0:'L0 Local',l1:'L1 Segment',l2:'L2 Hierarchy',mem:'Memory write',ret:'Retrieval',reason:'Reasoning',corr:'Correlation',dec:'Decision'};
+const BASE_LAT = {l0:1.8,l1:3.2,l2:2.9,mem:1.2,ret:8.4,reason:4.1,corr:2.3,dec:0.9};
+const ATTACK_CLASSES = ['DoS/DDoS','BruteForce/CredentialStuffing','EncryptedC2/Exfiltration','LateralMovement/Persistence','FileSystemAnomaly/Ransomware','PortScan'];
+const DECISIONS = ['LOG','LOG','ALERT','ALERT','BLOCK','ESCALATE'];
+
+let mode = 'normal';
+let state = {
+  total:0, alerts:0, blocks:0, esc:0, faults:0, reasoning:0,
+  eps:0, uptime:0, campaigns:[], alertFeed:[],
+  shards:[0,0,0,0], shardTotal:[0,0,0,0],
+  lat:{l0:0,ret:0,reason:0,tot:0},
+  tpHistory: new Array(30).fill(0),
+  stageLit: null
+};
+
+function rand(a,b){ return a + Math.random()*(b-a); }
+function jitter(v){ return Math.max(0.1, v*(0.8 + Math.random()*0.4)); }
+
+// Chart setup
+const tpCtx = document.getElementById('tp-canvas');
+const tpChart = new Chart(tpCtx, {
+  type:'line',
+  data:{
+    labels: new Array(30).fill(''),
+    datasets:[{
+      data: state.tpHistory,
+      borderColor:'#185FA5',
+      borderWidth:1.5,
+      tension:0.4,
+      fill:true,
+      backgroundColor:'rgba(24,95,165,0.08)',
+      pointRadius:0
+    }]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{legend:{display:false},tooltip:{enabled:false}},
+    scales:{
+      x:{display:false},
+      y:{display:true,min:0,ticks:{maxTicksLimit:3,font:{size:10}},grid:{color:'rgba(128,128,128,0.1)'}}
+    }
+  }
+});
+
+// Simulate event ingestion
+let frameId = 0;
+let lastEpsCount = 0;
+let lastEpsTime = Date.now();
+
+function simulateFrame() {
+  const now = Date.now();
+  const dt = (now - lastEpsTime) / 1000;
+
+  // Per-mode event rates and attack profiles
+  const modes = {
+    normal: {rate:rand(120,180), attackProb:0.01, attackClass:'none', decRange:[0,1]},
+    dos:    {rate:rand(800,1200),attackProb:0.85, attackClass:'DoS/DDoS', decRange:[3,5]},
+    apt:    {rate:rand(20,40),   attackProb:0.30, attackClass:'LateralMovement/Persistence', decRange:[2,3]},
+    brute:  {rate:rand(300,500), attackProb:0.60, attackClass:'BruteForce/CredentialStuffing', decRange:[2,4]},
+    multi:  {rate:rand(150,250), attackProb:0.45, attackClass:'APT-Exfiltration', decRange:[2,5]}
+  };
+  const m = modes[mode];
+
+  // Events this tick
+  const evCount = Math.round(m.rate / 20); // 50ms ticks
+  state.total += evCount;
+  state.eps = Math.round(evCount * 20);
+
+  // Shard distribution (hash-based, slightly uneven)
+  const shardWeights = [0.28,0.34,0.22,0.16];
+  for(let i=0;i<4;i++){
+    state.shards[i] = Math.round(m.rate * shardWeights[i]);
+    state.shardTotal[i] += Math.round(evCount * shardWeights[i]);
+  }
+
+  // Latencies (with mode-dependent spikes)
+  const latMult = mode==='dos' ? 1.4 : mode==='apt' ? 0.9 : 1.0;
+  state.lat.l0     = jitter(BASE_LAT.l0 * latMult);
+  state.lat.ret    = jitter(BASE_LAT.ret * latMult);
+  state.lat.reason = jitter(BASE_LAT.reason * (mode==='reason'?2.2:1.2));
+  state.lat.tot    = state.lat.l0+jitter(BASE_LAT.l1)+jitter(BASE_LAT.l2)+
+                     state.lat.ret+state.lat.reason+jitter(BASE_LAT.corr)+jitter(BASE_LAT.dec);
+
+  // Generate alerts
+  const attackCount = Math.round(evCount * m.attackProb);
+  if(attackCount > 0){
+    const di = Math.min(5, m.decRange[0] + Math.floor(Math.random()*(m.decRange[1]-m.decRange[0]+1)));
+    const dec = DECISIONS[di];
+    const cls = m.attackClass === 'none' ? ATTACK_CLASSES[Math.floor(Math.random()*2)] : m.attackClass;
+    const src = `10.${Math.floor(rand(0,255))}.${Math.floor(rand(0,255))}.${Math.floor(rand(1,254))}`;
+    const conf = (0.4 + Math.random()*0.5).toFixed(2);
+
+    if(dec==='BLOCK'||dec==='ESCALATE') state.blocks++;
+    if(dec==='ALERT'||dec==='ESCALATE') state.alerts++;
+    if(dec==='ESCALATE') state.esc++;
+    state.reasoning += attackCount;
+
+    // Add to feed
+    state.alertFeed.unshift({dec, src, conf, cls, time:new Date().toLocaleTimeString('en',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'})});
+    if(state.alertFeed.length > 40) state.alertFeed.pop();
+
+    // Campaign tracking
+    const campCls = cls;
+    let found = state.campaigns.find(c=>c.cls===campCls&&c.active);
+    if(!found && Math.random() > 0.6){
+      state.campaigns.unshift({id:'camp_'+state.campaigns.length, cls:campCls, ev:0, active:true});
+    }
+    if(found){ found.ev++; found.active = found.ev < 200; }
+    state.campaigns = state.campaigns.slice(0,6);
+  }
+
+  // Throughput history
+  if(dt >= 1) {
+    state.tpHistory.push(state.eps);
+    state.tpHistory.shift();
+    tpChart.data.datasets[0].data = [...state.tpHistory];
+    tpChart.update('none');
+    lastEpsTime = now;
+  }
+
+  // Occasional fault
+  if(Math.random() < 0.002) state.faults++;
+
+  // Uptime
+  state.uptime++;
+
+  renderUI();
+  frameId = setTimeout(simulateFrame, 50);
+}
+
+// Light up a pipeline stage briefly
+function litStage(id){
+  const el = document.getElementById('ps-'+id);
+  if(!el) return;
+  el.classList.add('lit');
+  setTimeout(()=>el.classList.remove('lit'), 120);
+}
+
+let stageIdx = 0;
+function pulseStages(){
+  litStage(STAGES[stageIdx % STAGES.length]);
+  stageIdx++;
+}
+setInterval(pulseStages, 80);
+
+function renderUI(){
+  const s = state;
+  document.getElementById('m-eps').textContent    = s.eps.toLocaleString();
+  document.getElementById('m-alerts').textContent = s.alerts.toLocaleString();
+  document.getElementById('m-blocks').textContent = s.blocks.toLocaleString();
+  document.getElementById('m-esc').textContent    = s.esc.toLocaleString();
+  document.getElementById('m-faults').textContent = s.faults;
+  document.getElementById('m-total').textContent  = s.total.toLocaleString();
+  document.getElementById('m-camps').textContent  = s.campaigns.filter(c=>c.active).length;
+  const rPct = s.total>0 ? Math.round(s.reasoning/s.total*100) : 0;
+  document.getElementById('m-reason').textContent = rPct+'%';
+
+  // Uptime
+  const u = s.uptime;
+  document.getElementById('uptime-label').textContent =
+    u < 60 ? u+'s' : (Math.floor(u/60)+'m '+(u%60)+'s');
+
+  // Status badge
+  const badge = document.getElementById('status-badge');
+  badge.textContent = s.faults>10 ? '⚠ PANIC' : '● LIVE';
+  badge.className = 'badge ' + (s.faults>10 ? 'badge-panic' : 'badge-live');
+
+  // Shard bars
+  const maxS = Math.max(...s.shards, 1);
+  for(let i=0;i<4;i++){
+    document.getElementById('sb'+i).style.width = Math.round(s.shards[i]/maxS*100)+'%';
+    document.getElementById('sn'+i).textContent = s.shards[i].toLocaleString()+' ev/s';
+  }
+
+  // Latency
+  document.getElementById('lat-l0').textContent  = s.lat.l0.toFixed(1)+'µs';
+  document.getElementById('lat-r').textContent   = s.lat.reason.toFixed(1)+'µs';
+  document.getElementById('lat-ret').textContent = s.lat.ret.toFixed(1)+'µs';
+  document.getElementById('lat-tot').textContent = s.lat.tot.toFixed(1)+'µs';
+
+  // Stage latencies
+  document.getElementById('pu-l0').textContent     = s.lat.l0.toFixed(1)+'µs';
+  document.getElementById('pu-ret').textContent    = s.lat.ret.toFixed(1)+'µs';
+  document.getElementById('pu-reason').textContent = s.lat.reason.toFixed(1)+'µs';
+
+  // Alert feed (render top 8)
+  const feed = document.getElementById('alert-feed');
+  feed.innerHTML = s.alertFeed.slice(0,8).map(a=>`
+    <div class="alert-row ${a.dec}">
+      <span class="al-dec ${a.dec}">${a.dec}</span>
+      <span class="al-src">${a.src}</span>
+      <span class="al-cls">${a.cls}</span>
+      <span class="al-conf">${a.conf}</span>
+    </div>`).join('');
+
+  // Campaigns
+  const campEl = document.getElementById('campaign-list');
+  const active = s.campaigns.filter(c=>c.active);
+  if(active.length===0){
+    campEl.innerHTML='<div style="font-size:12px;color:var(--color-text-secondary)">No campaigns detected</div>';
+  } else {
+    campEl.innerHTML = active.map(c=>`
+      <div class="camp-row">
+        <div class="camp-dot"></div>
+        <span class="camp-id">${c.id}</span>
+        <span class="camp-class">${c.cls}</span>
+        <span class="camp-ev">${c.ev} ev</span>
+      </div>`).join('');
+  }
+}
+
+function setMode(m) {
+  mode = m;
+  ['normal','dos','apt','brute','multi'].forEach(k=>{
+    document.getElementById('btn-'+k).classList.toggle('active', k===m);
+  });
+}
+
+simulateFrame();
+</script>
