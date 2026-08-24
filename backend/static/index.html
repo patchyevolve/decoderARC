@@ -1,0 +1,1809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CoreIDS — Network Security Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🛡️</text></svg>">
+<style>
+:root {
+  --bg-base: #090d13; --bg-panel: #0e1421; --bg-card: #131c2e;
+  --bg-hover: #1a2540; --bg-selected: #1e2f50; --border: #1f2d47;
+  --border-bright: #2a3f66; --color-primary: #3b82f6;
+  --color-accent: #06b6d4; --color-success: #10b981;
+  --color-warning: #f59e0b; --color-danger: #ef4444;
+  --color-medium: #f97316; --color-info: #8b5cf6;
+  --text-1: #f0f4ff; --text-2: #94a3b8; --text-3: #475569;
+  --sidebar-w: 220px; --topbar-h: 58px; --radius: 8px; --radius-lg: 12px;
+  --font-ui: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --font-head: 'Space Mono', 'DM Sans', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body { font-family: var(--font-ui); background: var(--bg-base); color: var(--text-1); height: 100vh; overflow: hidden; }
+input, button, select, textarea { font-family: inherit; }
+a { color: var(--color-primary); text-decoration: none; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg-panel); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 99px; }
+
+/* ═══ LOGIN ═══ */
+.login-page { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--bg-base); }
+.login-box { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 40px; width: 380px; }
+.login-box h1 { font-family: var(--font-head); font-size: 22px; margin-bottom: 4px; }
+.login-box h1 span { background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.login-box p { color: var(--text-3); font-size: 13px; margin-bottom: 24px; }
+.login-box label { font-size: 12px; color: var(--text-2); display: block; margin-bottom: 4px; }
+.login-box input { width: 100%; background: var(--bg-card); border: 1px solid var(--border-bright); color: var(--text-1); border-radius: var(--radius); padding: 10px 12px; font-size: 13px; margin-bottom: 14px; outline: none; transition: border-color 0.15s; }
+.login-box input:focus { border-color: var(--color-primary); }
+.login-box button { width: 100%; background: var(--color-primary); color: #fff; border: none; border-radius: var(--radius); padding: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+.login-box button:hover { opacity: 0.9; }
+.login-box .toggle { text-align: center; margin-top: 14px; font-size: 12px; color: var(--text-3); }
+.login-box .toggle a { color: var(--color-primary); cursor: pointer; }
+.login-box .error { color: var(--color-danger); font-size: 12px; margin-bottom: 10px; padding: 8px; background: rgba(239,68,68,0.1); border-radius: var(--radius); }
+.hidden { display: none !important; }
+.loading { color: var(--text-3); font-size: 12px; text-align: center; padding: 20px; }
+
+/* ═══ LAYOUT ═══ */
+.layout { display: flex; height: 100vh; }
+.sidebar {
+  width: var(--sidebar-w); background: var(--bg-panel); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; overflow-x: hidden;
+  z-index: 100; transition: width 0.25s ease;
+}
+.sidebar .logo-area {
+  padding: 16px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.sidebar .logo-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;
+}
+.sidebar .logo-text h2 { font-family: var(--font-head); font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }
+.sidebar .logo-text p { font-size: 10px; color: var(--text-3); margin-top: 1px; }
+.sidebar .nav-section { padding: 12px 14px 4px; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: var(--text-3); text-transform: uppercase; }
+.sidebar .nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px; margin: 1px 8px;
+  border-radius: var(--radius); color: var(--text-2); font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: all 0.15s; position: relative;
+}
+.sidebar .nav-item:hover { background: var(--bg-hover); color: var(--text-1); }
+.sidebar .nav-item.active { background: var(--bg-selected); color: var(--color-primary); }
+.sidebar .nav-item.active::before {
+  content: ''; position: absolute; left: 0; top: 20%; bottom: 20%;
+  width: 3px; background: var(--color-primary); border-radius: 0 3px 3px 0; margin-left: -8px;
+}
+.sidebar .footer { margin-top: auto; padding: 12px 10px; border-top: 1px solid var(--border); }
+.sidebar .status-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
+.sidebar .status-header { font-size: 10px; color: var(--text-3); font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 8px; }
+.sidebar .stat-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; margin: 4px 0; color: var(--text-2); }
+.sidebar .stat-row span:last-child { color: var(--text-1); font-family: var(--font-mono); }
+.sidebar .version { font-size: 10px; color: var(--text-3); text-align: center; margin-top: 8px; }
+
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.topbar {
+  height: var(--topbar-h); background: var(--bg-panel); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px; gap: 12px; flex-shrink: 0;
+}
+.topbar-title h1 { font-family: var(--font-head); font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+.topbar-title p { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+.topbar .spacer { flex: 1; }
+.topbar .live-dot { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--color-success); }
+.topbar .live-dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); animation: pulse 1.5s infinite; }
+.topbar .live-dot.offline { color: var(--color-danger); }
+.topbar .live-dot.offline::before { background: var(--color-danger); animation: none; opacity: 0.9; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.topbar .logout-btn {
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-2);
+  padding: 6px 14px; border-radius: var(--radius); font-size: 12px; cursor: pointer; transition: all 0.15s;
+}
+.topbar .logout-btn:hover { border-color: var(--color-danger); color: var(--color-danger); }
+
+.page-area { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.page { display: none; flex-direction: column; gap: 16px; }
+.page.active { display: flex; }
+
+/* ═══ STAT CARDS ═══ */
+.stat-row { display: grid; gap: 12px; }
+.stat-row.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.stat-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.stat-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.stat-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 16px; display: flex; align-items: center; gap: 12px; transition: border-color 0.2s;
+  position: relative; overflow: hidden;
+}
+.stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent); }
+.stat-card:hover { border-color: var(--border-bright); }
+.stat-icon {
+  width: 38px; height: 38px; border-radius: 10px; display: flex;
+  align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0;
+}
+.stat-icon.red { background: rgba(239,68,68,0.15); }
+.stat-icon.orange { background: rgba(249,115,22,0.15); }
+.stat-icon.blue { background: rgba(59,130,246,0.15); }
+.stat-icon.green { background: rgba(16,185,129,0.15); }
+.stat-icon.purple { background: rgba(139,92,246,0.15); }
+.stat-icon.cyan { background: rgba(6,182,212,0.15); }
+.stat-body { flex: 1; min-width: 0; }
+.stat-label { font-size: 11px; color: var(--text-3); font-weight: 500; margin-bottom: 3px; }
+.stat-value { font-size: 22px; font-weight: 700; font-family: var(--font-head); color: var(--text-1); line-height: 1; }
+.stat-value .unit { font-size: 13px; font-weight: 500; color: var(--text-2); margin-left: 2px; }
+.stat-trend { font-size: 10px; margin-top: 4px; display: flex; align-items: center; gap: 3px; }
+.stat-trend.up { color: var(--color-danger); }
+.stat-trend.down { color: var(--color-success); }
+
+/* ═══ PANELS ═══ */
+.panel-grid { display: grid; gap: 16px; }
+.panel-grid.two-thirds { grid-template-columns: 2fr 1fr; }
+.panel-grid.half { grid-template-columns: 1fr 1fr; }
+.panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; display: flex; flex-direction: column; }
+.panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+.panel-header .icon { font-size: 14px; }
+.panel-body { padding: 16px; flex: 1; }
+.panel-body.no-pad { padding: 0; }
+
+/* ═══ TABLE ═══ */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-3); padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.data-table td { font-size: 12px; color: var(--text-2); padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--bg-hover); color: var(--text-1); }
+.data-table .mono { font-family: var(--font-mono); font-size: 11px; }
+
+.badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.badge.high { background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+.badge.medium { background: rgba(249,115,22,0.18); color: #fb923c; border: 1px solid rgba(249,115,22,0.3); }
+.badge.low { background: rgba(34,197,94,0.18); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+.badge.critical { background: rgba(220,38,38,0.18); color: #fca5a5; border: 1px solid rgba(220,38,38,0.3); }
+.badge.info { background: rgba(139,92,246,0.18); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+.badge.alert { background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+.badge.firewall { background: rgba(249,115,22,0.18); color: #fb923c; border: 1px solid rgba(249,115,22,0.3); }
+.badge.dns { background: rgba(6,182,212,0.18); color: #22d3ee; border: 1px solid rgba(6,182,212,0.3); }
+.badge.http { background: rgba(59,130,246,0.18); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+.badge.system { background: rgba(139,92,246,0.18); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+
+.tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-2); }
+
+.toggle-switch { width: 30px; height: 16px; border-radius: 99px; background: var(--border); position: relative; cursor: pointer; transition: background 0.2s; flex-shrink: 0; display: inline-block; vertical-align: middle; }
+.toggle-switch.on { background: var(--color-primary); }
+.toggle-switch::after { content: ''; width: 12px; height: 12px; border-radius: 50%; background: #fff; position: absolute; top: 2px; left: 2px; transition: left 0.2s; }
+.toggle-switch.on::after { left: 16px; }
+
+.report-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; display: flex; align-items: center; gap: 14px; cursor: pointer; transition: all 0.2s; }
+.report-card:hover { border-color: var(--color-primary); }
+.report-card-icon { width: 40px; height: 40px; border-radius: 10px; background: rgba(59,130,246,0.1); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.report-card-body { flex: 1; }
+.report-card-name { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.report-card-meta { font-size: 11px; color: var(--text-3); }
+
+.filter-btn { background: var(--bg-card); border: 1px solid var(--border-bright); color: var(--text-2); font-size: 12px; border-radius: var(--radius); padding: 7px 12px; display: flex; align-items: center; gap: 6px; transition: all 0.15s; }
+.filter-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
+
+/* ═══ CHARTS ═══ */
+.sparkline-wrap { height: 120px; display: flex; align-items: flex-end; gap: 2px; padding: 12px 0 0; }
+.spark-bar { flex: 1; border-radius: 2px 2px 0 0; min-height: 2px; transition: height 0.3s; }
+.legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 6px; }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.legend-name { flex: 1; color: var(--text-2); }
+.legend-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.category-bar-wrap { height: 4px; background: var(--border); border-radius: 99px; margin-bottom: 10px; overflow: hidden; }
+.category-bar { height: 100%; border-radius: 99px; }
+
+/* ═══ TALKERS ═══ */
+.talker-row { display: flex; align-items: center; gap: 10px; font-size: 11px; margin-bottom: 8px; }
+.talker-ip { font-family: var(--font-mono); color: var(--text-2); width: 130px; flex-shrink: 0; }
+.talker-bar-wrap { flex: 1; height: 4px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.talker-bar { height: 100%; border-radius: 99px; }
+.talker-val { color: var(--text-3); width: 50px; text-align: right; font-family: var(--font-mono); }
+
+/* ═══ DEVICES ═══ */
+.device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.device-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 16px; cursor: pointer; transition: all 0.2s;
+}
+.device-card:hover { border-color: var(--color-primary); }
+.device-card .name { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.device-card .row { display: flex; justify-content: space-between; font-size: 11px; margin: 3px 0; color: var(--text-2); }
+.device-card .row .v { color: var(--text-1); font-family: var(--font-mono); }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.dot.online { background: var(--color-success); box-shadow: 0 0 6px var(--color-success); }
+.dot.offline { background: var(--color-danger); }
+.dot.error { background: var(--color-warning); }
+
+/* ═══ SEARCH / FILTER ═══ */
+.filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.search-box {
+  display: flex; align-items: center; gap: 8px; background: var(--bg-card);
+  border: 1px solid var(--border-bright); border-radius: var(--radius); padding: 7px 12px; flex: 1; min-width: 180px;
+}
+.search-box input { background: transparent; border: none; color: var(--text-1); font-size: 12px; width: 100%; outline: none; }
+.search-box input::placeholder { color: var(--text-3); }
+.filter-select, select { background: var(--bg-card); border: 1px solid var(--border-bright); color: var(--text-1); font-size: 12px; border-radius: var(--radius); padding: 7px 10px; outline: none; cursor: pointer; }
+select option { background: #1a2540; color: var(--text-1); }
+.btn {
+  border-radius: var(--radius); font-size: 12px; font-weight: 600; padding: 7px 14px;
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; border: none; transition: all 0.15s;
+}
+.btn-primary { background: var(--color-primary); color: #fff; }
+.btn-primary:hover { opacity: 0.9; }
+.btn-secondary { background: var(--bg-card); border: 1px solid var(--border-bright); color: var(--text-2); }
+.btn-secondary:hover { border-color: var(--color-primary); color: var(--text-1); }
+.btn-danger { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; }
+.btn-danger:hover { background: rgba(239,68,68,0.25); }
+.btn-sm { padding: 5px 10px; font-size: 11px; }
+
+/* ═══ SETTINGS ═══ */
+.settings-grid { display: grid; grid-template-columns: 200px 1fr; gap: 16px; }
+.settings-nav { display: flex; flex-direction: column; gap: 4px; }
+.settings-nav-item {
+  padding: 8px 12px; border-radius: var(--radius); font-size: 12px; font-weight: 500;
+  color: var(--text-2); cursor: pointer; display: flex; align-items: center; gap: 8px;
+}
+.settings-nav-item:hover { background: var(--bg-hover); color: var(--text-1); }
+.settings-nav-item.active { background: var(--bg-selected); color: var(--color-primary); }
+.settings-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.settings-group { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-3); }
+.settings-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.settings-row:last-child { border-bottom: none; }
+.settings-row .info h4 { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+.settings-row .info p { font-size: 11px; color: var(--text-3); }
+.settings-row .val { color: var(--text-1); font-family: var(--font-mono); font-size: 12px; }
+
+/* ═══ PAGINATION ═══ */
+.pagination { display: flex; align-items: center; gap: 4px; justify-content: center; padding: 12px 0; }
+.page-btn {
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; font-size: 11px; font-weight: 600; background: var(--bg-card);
+  border: 1px solid var(--border); color: var(--text-2); cursor: pointer;
+}
+.page-btn.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.page-btn:hover:not(.active) { border-color: var(--color-primary); }
+
+/* ═══ RESPONSIVE ═══ */
+@media (max-width: 1200px) {
+  .stat-row.cols-5, .stat-row.cols-6 { grid-template-columns: repeat(3, 1fr); }
+  .panel-grid.two-thirds, .panel-grid.half { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  :root { --sidebar-w: 56px; }
+  .sidebar .logo-text, .sidebar .nav-section, .sidebar .nav-label, .sidebar .footer { display: none; }
+  .sidebar .logo-icon { margin: 0 auto; }
+  .stat-row.cols-5, .stat-row.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  .panel-grid.half { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════════ LOGIN / REGISTER ════════════════ -->
+<div class="login-page" id="login-page">
+  <div class="login-box" id="login-box">
+    <h1><span>🛡️</span> CoreIDS</h1>
+    <p id="login-title">Sign in to your security dashboard</p>
+    <div class="error hidden" id="login-error"></div>
+    <form id="login-form">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="you@example.com" required>
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="Password" required>
+      <div id="reg-name-wrap" style="display:none">
+        <label>Name</label>
+        <input type="text" id="reg-name" placeholder="Your name">
+        <label>Company</label>
+        <input type="text" id="reg-company" placeholder="Your company (optional)">
+      </div>
+      <button type="submit" id="login-submit-btn">Sign In</button>
+    </form>
+    <div class="toggle" id="login-toggle">No account? <a id="show-register">Create one</a></div>
+    <div class="toggle hidden" id="register-toggle">Already have an account? <a id="show-login">Sign in</a></div>
+  </div>
+</div>
+
+<!-- ════════════════ DASHBOARD ════════════════ -->
+<div class="layout hidden" id="dashboard-layout">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="logo-area">
+      <div class="logo-icon">🛡️</div>
+      <div class="logo-text"><h2>CoreIDS</h2><p>Intrusion Detection</p></div>
+    </div>
+    <div class="nav-section">Main</div>
+    <div class="nav-item active" onclick="nav('overview')"><span>🏠</span><span class="nav-label">Overview</span></div>
+    <div class="nav-item" onclick="nav('alerts')"><span>🔔</span><span class="nav-label">Alerts</span></div>
+    <div class="nav-item" onclick="nav('logs')"><span>📋</span><span class="nav-label">Logs</span></div>
+    <div class="nav-item" onclick="nav('traffic')"><span>📡</span><span class="nav-label">Traffic</span></div>
+    <div class="nav-item" onclick="nav('analytics')"><span>📊</span><span class="nav-label">Analytics</span></div>
+    <div class="nav-section">Network</div>
+    <div class="nav-item" onclick="nav('devices')"><span>🖥️</span><span class="nav-label">Devices</span></div>
+    <div class="nav-item" onclick="nav('sources')"><span>🎯</span><span class="nav-label">Sources</span></div>
+    <div class="nav-item" onclick="nav('rules')"><span>📐</span><span class="nav-label">Rules</span></div>
+    <div class="nav-section">System</div>
+    <div class="nav-item" onclick="nav('reports')"><span>📄</span><span class="nav-label">Reports</span></div>
+    <div class="nav-item" onclick="nav('settings')"><span>⚙️</span><span class="nav-label">Settings</span></div>
+    <div class="footer">
+      <div class="status-box">
+        <div class="status-header">System Status</div>
+        <div class="stat-row"><span>Plan</span><span id="s-plan">—</span></div>
+        <div class="stat-row"><span>Devices</span><span id="s-devices">—</span></div>
+        <div class="stat-row"><span>EPS</span><span id="s-eps">—</span></div>
+      </div>
+      <div class="version">CoreIDS v0.1.0</div>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <div class="topbar-title" id="topbar-title">
+        <h1 id="page-title">Overview</h1>
+        <p id="page-subtitle">Real-time network security summary</p>
+      </div>
+      <div class="spacer"></div>
+      <select id="device-selector" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-panel);color:var(--text);font-size:12px;margin-right:8px;max-width:180px" onchange="onDeviceChange()">
+        <option value="">All Devices</option>
+      </select>
+      <div class="live-dot" id="live-indicator">LIVE</div>
+      <button class="logout-btn" onclick="logout()">Sign Out</button>
+    </header>
+
+    <div class="page-area" id="page-area">
+
+      <!-- ══ PAGE: OVERVIEW ══ -->
+      <div class="page active" id="page-overview">
+        <div class="stat-row cols-5">
+          <div class="stat-card">
+            <div class="stat-icon red">🛡️</div>
+            <div class="stat-body">
+              <div class="stat-label">Total Alerts</div>
+              <div class="stat-value" id="ov-total">—</div>
+              <div class="stat-trend" id="ov-total-trend"></div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon orange">⚠️</div>
+            <div class="stat-body">
+              <div class="stat-label">High Severity</div>
+              <div class="stat-value" id="ov-high">—</div>
+              <div class="stat-trend" id="ov-high-trend"></div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon blue">📡</div>
+            <div class="stat-body">
+              <div class="stat-label">Traffic</div>
+              <div class="stat-value" id="ov-traffic">—</div>
+              <div class="stat-trend" id="ov-traffic-unit"></div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon green">🖥️</div>
+            <div class="stat-body">
+              <div class="stat-label">Devices</div>
+              <div class="stat-value" id="ov-devices">—</div>
+              <div class="stat-trend" id="ov-devices-trend"></div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon purple">🚫</div>
+            <div class="stat-body">
+              <div class="stat-label">Blocked</div>
+              <div class="stat-value" id="ov-blocked">—</div>
+              <div class="stat-trend">This period</div>
+            </div>
+          </div>
+        </div>
+        <div class="panel-grid two-thirds">
+          <div class="panel">
+            <div class="panel-header"><span class="icon">📈</span> Alert Timeline</div>
+            <div class="panel-body"><div class="sparkline-wrap" id="ov-sparkline"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><span class="icon">🥧</span> Alert Categories</div>
+            <div class="panel-body" id="ov-categories"><div class="loading">Loading...</div></div>
+          </div>
+        </div>
+        <div class="panel-grid two-thirds">
+          <div class="panel">
+            <div class="panel-header"><span class="icon">🚨</span> Recent Alerts</div>
+            <div class="panel-body no-pad">
+              <table class="data-table">
+                <thead><tr><th>Time</th><th>Severity</th><th>Type</th><th>Source</th><th>Dest</th></tr></thead>
+                <tbody id="ov-alerts"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><span class="icon">🎯</span> Top Talkers</div>
+            <div class="panel-body" id="ov-talkers"><div class="loading">Loading...</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ PAGE: ALERTS ══ -->
+      <div class="page" id="page-alerts">
+        <div class="filter-bar">
+          <div class="search-box"><input id="alerts-search" placeholder="Search IP..." oninput="loadAlerts()"></div>
+          <select class="filter-select" id="alerts-severity" onchange="loadAlerts()">
+            <option value="">All Severities</option><option value="critical">Critical</option>
+            <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="loadAlerts()">🔄 Refresh</button>
+        </div>
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <table class="data-table">
+              <thead><tr><th>Time</th><th>Severity</th><th>Type</th><th>Source</th><th>Dest</th><th>Score</th></tr></thead>
+              <tbody id="alerts-list"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="pagination" id="alerts-pagination"></div>
+      </div>
+
+      <!-- ══ PAGE: TRAFFIC ══ -->
+      <div class="page" id="page-traffic">
+        <div class="stat-row cols-4">
+          <div class="stat-card"><div class="stat-icon blue">📡</div><div class="stat-body"><div class="stat-label">Total Traffic</div><div class="stat-value" id="tr-total">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon cyan">📤</div><div class="stat-body"><div class="stat-label">Inbound</div><div class="stat-value" id="tr-inbound">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon orange">📥</div><div class="stat-body"><div class="stat-label">Outbound</div><div class="stat-value" id="tr-outbound">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon purple">⚡</div><div class="stat-body"><div class="stat-label">Peak</div><div class="stat-value" id="tr-peak">—</div></div></div>
+        </div>
+        <div class="panel"><div class="panel-header"><span class="icon">📈</span> Traffic Over Time</div><div class="panel-body"><div class="sparkline-wrap" id="tr-sparkline"></div></div></div>
+      </div>
+
+      <!-- ══ PAGE: ANALYTICS ══ -->
+      <div class="page" id="page-analytics">
+        <div class="stat-row cols-4">
+          <div class="stat-card"><div class="stat-icon purple">📊</div><div class="stat-body"><div class="stat-label">Total Events</div><div class="stat-value" id="an-events">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon red">🚨</div><div class="stat-body"><div class="stat-label">Alert Rate</div><div class="stat-value" id="an-alert-rate">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-body"><div class="stat-label">Benign %</div><div class="stat-value" id="an-benign">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon cyan">⏱️</div><div class="stat-body"><div class="stat-label">Avg Latency</div><div class="stat-value" id="an-latency">—</div></div></div>
+        </div>
+        <div class="panel"><div class="panel-header"><span class="icon">📊</span> Attack Categories</div><div class="panel-body" id="an-protocols"><div class="loading">No data yet</div></div></div>
+      </div>
+
+      <!-- ══ PAGE: DEVICES ══ -->
+      <div class="page" id="page-devices">
+        <div class="stat-row cols-2">
+          <div class="stat-card"><div class="stat-icon cyan">📡</div><div class="stat-body"><div class="stat-label">Sensors</div><div class="stat-value" id="dev-total">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon green" id="dev-online-icon">🟢</div><div class="stat-body"><div class="stat-label">Online</div><div class="stat-value" id="dev-online">—</div></div></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <input style="flex:1;background:var(--bg-card);border:1px solid var(--border-bright);color:var(--text-1);border-radius:var(--radius);padding:8px 12px;font-size:13px;outline:none" id="dev-name" placeholder="New sensor name...">
+          <button class="btn btn-primary" onclick="createDevice()">+ Add Sensor</button>
+        </div>
+        <div class="device-grid" id="devices-grid"><div class="loading">Loading...</div></div>
+      </div>
+
+      <!-- ══ PAGE: SOURCES ══ -->
+      <div class="page" id="page-sources">
+        <div class="panel"><div class="panel-header"><span class="icon">🎯</span> Top Source IPs</div>
+        <div class="panel-body no-pad">
+          <table class="data-table" id="sources-table">
+            <thead><tr><th>IP Address</th><th>Alerts</th><th>Last Seen</th><th>Threat Score</th></tr></thead>
+            <tbody id="sources-list"></tbody>
+          </table>
+        </div></div>
+      </div>
+
+      <!-- ══ PAGE: LOGS ══ -->
+      <div class="page" id="page-logs">
+        <div class="stat-row cols-5">
+          <div class="stat-card"><div class="stat-icon blue">📋</div><div class="stat-body"><div class="stat-label">Total Logs</div><div class="stat-value" id="lg-total">—</div><div class="stat-trend" id="lg-total-trend"></div></div></div>
+          <div class="stat-card"><div class="stat-icon orange">🔥</div><div class="stat-body"><div class="stat-label">Firewall</div><div class="stat-value" id="lg-firewall">—</div><div class="stat-trend" id="lg-firewall-trend"></div></div></div>
+          <div class="stat-card"><div class="stat-icon cyan">🌐</div><div class="stat-body"><div class="stat-label">DNS</div><div class="stat-value" id="lg-dns">—</div><div class="stat-trend" id="lg-dns-trend"></div></div></div>
+          <div class="stat-card"><div class="stat-icon blue">📡</div><div class="stat-body"><div class="stat-label">HTTP</div><div class="stat-value" id="lg-http">—</div><div class="stat-trend" id="lg-http-trend"></div></div></div>
+          <div class="stat-card"><div class="stat-icon purple">💻</div><div class="stat-body"><div class="stat-label">System</div><div class="stat-value" id="lg-system">—</div><div class="stat-trend" id="lg-system-trend"></div></div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="search-box"><input id="logs-search" placeholder="Search logs..." oninput="loadLogs()"></div>
+          <select class="filter-select" id="logs-type" onchange="loadLogs()"><option value="">Type: All</option><option>Alert</option><option>Firewall</option><option>DNS</option><option>HTTP</option><option>System</option></select>
+          <select class="filter-select" id="logs-protocol" onchange="loadLogs()"><option value="">Protocol: All</option><option>TCP</option><option>UDP</option><option>ICMP</option><option>HTTP</option><option>DNS</option></select>
+          <select class="filter-select" id="logs-severity" onchange="loadLogs()"><option value="">Severity: All</option><option>High</option><option>Medium</option><option>Low</option><option>Info</option></select>
+          <button class="filter-btn" onclick="toggleLogFilters()">⚙️ More Filters</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportLogs()">📥 Export</button>
+        </div>
+        <div id="logs-filters-extended" style="display:none;margin-top:6px;gap:8px;flex-wrap:wrap">
+          <input type="date" id="logs-date-from" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
+          <input type="date" id="logs-date-to" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
+          <input type="text" id="logs-src-ip" placeholder="Source IP" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;width:130px">
+          <input type="text" id="logs-dst-ip" placeholder="Dest IP" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;width:130px">
+          <button class="btn btn-primary btn-sm" onclick="document.getElementById('logs-date-from').value='';document.getElementById('logs-date-to').value='';document.getElementById('logs-src-ip').value='';document.getElementById('logs-dst-ip').value='';loadLogs()">Clear</button>
+        </div>
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <table class="data-table">
+              <thead><tr><th>Time</th><th>Type</th><th>Protocol</th><th>Source IP</th><th>Src Port</th><th>Dest IP</th><th>Dst Port</th><th>Severity</th><th>Message</th><th>Device</th></tr></thead>
+              <tbody id="logs-list"></tbody>
+            </table>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--border)">
+            <span style="font-size:11px;color:var(--text-3)" id="logs-info">Showing 0 logs</span>
+            <div class="pagination" id="logs-pagination"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ PAGE: RULES ══ -->
+      <div class="page" id="page-rules">
+        <div class="stat-row cols-4">
+          <div class="stat-card"><div class="stat-icon blue">📐</div><div class="stat-body"><div class="stat-label">Total Rules</div><div class="stat-value" id="rl-total">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-body"><div class="stat-label">Active</div><div class="stat-value" id="rl-active">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon orange">⏸️</div><div class="stat-body"><div class="stat-label">Disabled</div><div class="stat-value" id="rl-disabled">—</div></div></div>
+          <div class="stat-card"><div class="stat-icon red">🔥</div><div class="stat-body"><div class="stat-label">Triggered Today</div><div class="stat-value" id="rl-triggered">—</div><div class="stat-trend" id="rl-triggered-trend"></div></div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="search-box"><input id="rules-search" placeholder="Search rules by name, SID, category..." oninput="loadRules()"></div>
+          <select class="filter-select" id="rules-category" onchange="loadRules()"><option value="">Category: All</option><option>Web Attack</option><option>Malware</option><option>Recon</option><option>Policy</option><option>Brute Force</option></select>
+          <select class="filter-select" id="rules-severity" onchange="loadRules()"><option value="">Severity: All</option><option>High</option><option>Medium</option><option>Low</option></select>
+          <select class="filter-select" id="rules-status" onchange="loadRules()"><option value="">Status: All</option><option>Enabled</option><option>Disabled</option></select>
+          <button class="btn btn-primary btn-sm" onclick="showNewRuleForm()">+ New Rule</button>
+          <button class="btn btn-secondary btn-sm" onclick="importRules()">📥 Import</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportRules()">📤 Export</button>
+        </div>
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <table class="data-table">
+              <thead><tr><th>Rule ID</th><th>Name</th><th>Category</th><th>Severity</th><th>Protocol</th><th>Action</th><th>Triggers</th><th>Last Hit</th><th>Enabled</th><th></th></tr></thead>
+              <tbody id="rules-list"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ PAGE: REPORTS ══ -->
+      <div class="page" id="page-reports">
+        <div class="filter-bar" style="margin-bottom:4px">
+          <div class="search-box"><input id="reports-search" placeholder="Search reports..." oninput="loadReports()"></div>
+          <select class="filter-select" id="reports-type" onchange="loadReports()"><option value="">Type: All</option><option>Security Summary</option><option>Alert Report</option><option>Traffic</option><option>Compliance</option></select>
+          <button class="btn btn-primary btn-sm" onclick="generateReport()">+ Generate Report</button>
+        </div>
+        <div class="panel-grid half">
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">📑 Report Templates</div></div>
+            <div class="panel-body" style="display:flex;flex-direction:column;gap:8px" id="reports-templates">
+              <div class="loading">Loading...</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">📥 Recent Reports</div></div>
+            <div class="panel-body no-pad">
+              <table class="data-table">
+                <thead><tr><th>Report Name</th><th>Type</th><th>Generated</th><th>Format</th><th>Actions</th></tr></thead>
+                <tbody id="reports-list"></tbody>
+              </table>
+            </div>
+            <div class="panel-header" style="border-top:1px solid var(--border);border-bottom:none;margin-top:auto">
+              <div class="panel-title">⏰ Scheduled Reports</div>
+              <button class="btn btn-secondary btn-sm" onclick="scheduleReport()">+ Schedule</button>
+            </div>
+            <div class="panel-body no-pad">
+              <table class="data-table">
+                <thead><tr><th>Report</th><th>Schedule</th><th>Recipients</th><th>Active</th></tr></thead>
+                <tbody id="reports-scheduled"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ PAGE: SETTINGS ══ -->
+      <div class="page" id="page-settings">
+        <div class="settings-grid">
+          <div class="settings-nav">
+            <div class="settings-nav-item active" onclick="settingsTab('general')">⚙️ General</div>
+            <div class="settings-nav-item" onclick="settingsTab('plan')">💳 Subscription</div>
+            <div class="settings-nav-item" onclick="settingsTab('api')">🔑 API Keys</div>
+          </div>
+          <div id="settings-content">
+            <div id="settings-general" class="settings-card">
+              <div class="settings-group">Profile</div>
+              <div class="settings-row"><div class="info"><h4>Email</h4><p>Your login email</p></div><span class="val" id="set-email">—</span></div>
+              <div class="settings-row"><div class="info"><h4>Name</h4><p>Display name</p></div><span class="val" id="set-name">—</span></div>
+              <div class="settings-row"><div class="info"><h4>Company</h4><p>Organization</p></div><span class="val" id="set-company">—</span></div>
+              <div class="settings-group" style="margin-top:8px">Plan</div>
+              <div class="settings-row"><div class="info"><h4>Current Plan</h4><p>Your subscription tier</p></div><span class="val" id="set-plan">—</span></div>
+              <div class="settings-row"><div class="info"><h4>Sensors</h4><p>Allowed devices</p></div><span class="val" id="set-sensors">—</span></div>
+              <div class="settings-row"><div class="info"><h4>Retention</h4><p>Alert history</p></div><span class="val" id="set-retention">—</span></div>
+            </div>
+            <div id="settings-plan" class="settings-card hidden">
+              <div class="settings-group">Subscription Plans</div>
+              <div id="plans-list" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:8px"></div>
+            </div>
+            <div id="settings-api" class="settings-card hidden">
+              <div class="settings-group">API Keys</div>
+              <p style="font-size:12px;color:var(--text-3);margin:8px 0">Your devices and their API keys. Keys are masked by default.</p>
+              <div id="settings-keys-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end page-area -->
+  </div><!-- end main -->
+</div><!-- end layout -->
+
+<!-- ════════════════ JAVASCRIPT ════════════════ -->
+<script>
+const API = window.location.origin + '/api';
+
+function esc(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function jsEsc(str) {
+  if (str == null) return '';
+  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+}
+
+function calcTimeRange(days) {
+  const to = new Date();
+  const from = new Date(to.getTime() - (days || 7) * 24 * 60 * 60 * 1000);
+  return `time_from=${from.toISOString().slice(0,19)}&time_to=${to.toISOString().slice(0,19)}`;
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+// Primary auth: HttpOnly cookie (set by server, not readable by JS).
+// The server authenticates via cookie first, Bearer header second.
+// In-memory token variable is set from login response for the Authorization header.
+let token = '';
+
+function updateUI() {
+  document.getElementById('login-page').classList.toggle('hidden', !!token);
+  document.getElementById('dashboard-layout').classList.toggle('hidden', !token);
+}
+
+document.getElementById('login-form').onsubmit = async e => {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value;
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  try {
+    const r = await fetch(API + '/auth/login', { method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, password}) });
+    if (!r.ok) { const d = await r.json(); errEl.textContent = d.detail || 'Login failed'; errEl.classList.remove('hidden'); return; }
+    const data = await r.json();
+    token = data.token;
+    // Cookie handles persistence across refresh; in-memory token is for Authorization header
+    errEl.classList.add('hidden'); updateUI(); refreshAll(); startPolling(); connectWebSocket();
+  } catch(e) { errEl.textContent = 'Connection error'; errEl.classList.remove('hidden'); }
+};
+
+function logout() {
+  clearInterval(pollInterval);
+  disconnectWebSocket();
+  token = '';
+  // Hit logout endpoint to clear cookie — omit Authorization header when already logged out
+  fetch(API + '/auth/logout', { method: 'POST' }).catch(()=>{});
+  updateUI();
+}
+
+document.getElementById('show-register').onclick = () => {
+  document.getElementById('login-title').textContent = 'Create your CoreIDS account';
+  document.getElementById('login-submit-btn').textContent = 'Create Account';
+  document.getElementById('login-form').onsubmit = null;
+  document.getElementById('reg-name-wrap').style.display = '';
+  document.getElementById('login-toggle').classList.add('hidden');
+  document.getElementById('register-toggle').classList.remove('hidden');
+  document.getElementById('login-error').classList.add('hidden');
+  document.getElementById('login-form').onsubmit = async e => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    const name = document.getElementById('reg-name').value || email.split('@')[0];
+    const errEl = document.getElementById('login-error');
+    try {
+      const r = await fetch(API + '/auth/register', { method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email, password, name, company: document.getElementById('reg-company').value }) });
+      if (!r.ok) { const d = await r.json(); errEl.textContent = d.detail || 'Registration failed'; errEl.classList.remove('hidden'); return; }
+      const data = await r.json();
+      token = data.token;
+      errEl.classList.add('hidden'); updateUI(); refreshAll(); startPolling(); connectWebSocket();
+    } catch(e) { errEl.textContent = 'Connection error'; errEl.classList.remove('hidden'); }
+  };
+};
+
+document.getElementById('show-login').onclick = () => {
+  document.getElementById('login-title').textContent = 'Sign in to your security dashboard';
+  document.getElementById('login-submit-btn').textContent = 'Sign In';
+  document.getElementById('login-form').onsubmit = null;
+  document.getElementById('reg-name-wrap').style.display = 'none';
+  document.getElementById('register-toggle').classList.add('hidden');
+  document.getElementById('login-toggle').classList.remove('hidden');
+  document.getElementById('login-error').classList.add('hidden');
+  document.getElementById('login-form').onsubmit = async e => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    const errEl = document.getElementById('login-error');
+    try {
+      const r = await fetch(API + '/auth/login', { method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email, password}) });
+      if (!r.ok) { errEl.textContent = 'Invalid email or password'; errEl.classList.remove('hidden'); return; }
+      const data = await r.json();
+      token = data.token;
+      errEl.classList.add('hidden'); updateUI(); refreshAll(); startPolling(); connectWebSocket();
+    } catch(e) { errEl.textContent = 'Connection error'; errEl.classList.remove('hidden'); }
+  };
+};
+
+// ── API Helper ───────────────────────────────────────────────
+async function api(path) {
+  try {
+    const r = await fetch(API + path, {headers: {Authorization: 'Bearer ' + token}});
+    if (r.status === 401) { logout(); return null; }
+    return r.json();
+  } catch(e) { return null; }
+}
+
+// ── Navigation ───────────────────────────────────────────────
+const pages = { overview: {title:'Overview',sub:'Real-time network security summary'},
+  alerts:{title:'Alerts',sub:'View and manage security alerts'},
+  logs:{title:'Logs',sub:'Search, filter and analyze network events'},
+  traffic:{title:'Traffic',sub:'Network traffic analysis'},
+  analytics:{title:'Analytics',sub:'Deep analytics and trends'},
+  devices:{title:'Devices',sub:'Manage your sensor network'},
+  sources:{title:'Sources',sub:'Threat source intelligence'},
+  rules:{title:'Rules',sub:'Manage detection rules and signatures'},
+  reports:{title:'Reports',sub:'Generate, schedule and download reports'},
+  settings:{title:'Settings',sub:'Account and system configuration'} };
+
+function nav(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const el = document.getElementById('page-' + page);
+  if (el) el.classList.add('active');
+  document.querySelectorAll(`.nav-item[onclick*="'${page}'"]`).forEach(n => n.classList.add('active'));
+  const info = pages[page] || {title:page,sub:''};
+  document.getElementById('page-title').textContent = info.title;
+  document.getElementById('page-subtitle').textContent = info.sub;
+  // Load page-specific data
+  if (page === 'alerts') loadAlerts();
+  if (page === 'logs') loadLogs();
+  if (page === 'devices') loadDevices();
+  if (page === 'sources') loadSources();
+  if (page === 'rules') loadRules();
+  if (page === 'reports') loadReports();
+  if (page === 'settings') loadSettings();
+  if (page === 'analytics') loadAnalytics();
+  if (page === 'traffic') loadTraffic();
+}
+
+// ── Colors ───────────────────────────────────────────────────
+const chartColors = ['#3b82f6','#06b6d4','#8b5cf6','#f59e0b','#10b981','#ef4444'];
+
+// ── OVERVIEW ─────────────────────────────────────────────────
+async function refreshOverview() {
+  if (!token) return;
+  const ov = await api(`/dashboard/overview?${calcTimeRange(7)}${getDeviceParam()}`);
+  if (!ov) return;
+  document.getElementById('ov-total').textContent = ov.total_alerts;
+  document.getElementById('ov-high').textContent = ov.high_severity;
+  document.getElementById('ov-traffic').innerHTML = ov.traffic_gbps.toFixed(2) + ' <span class="unit">Gbps</span>';
+  document.getElementById('ov-devices').textContent = ov.devices_online + '/' + ov.active_devices;
+  document.getElementById('ov-blocked').textContent = ov.blocked_events;
+  setTrend('ov-total-trend', ov.alerts_trend);
+  setTrend('ov-high-trend', ov.high_trend);
+  const t = document.getElementById('ov-traffic-unit');
+  if (t) t.textContent = 'Live';
+  const liveEl = document.getElementById('live-indicator');
+  if (liveEl) {
+    const online = (ov.devices_online || 0) > 0;
+    liveEl.classList.toggle('offline', !online);
+    liveEl.textContent = online ? 'LIVE' : 'OFFLINE';
+  }
+
+  // Categories
+  const cats = await api(`/alerts/categories?${calcTimeRange(7)}${getDeviceParam()}`);
+  if (cats && cats.categories) {
+    const c = document.getElementById('ov-categories');
+    if (cats.categories.length === 0) { c.innerHTML = '<div class="loading">No alerts yet</div>'; }
+    else {
+      const max = Math.max(...cats.categories.map(x => x.count));
+      c.innerHTML = cats.categories.map((x,i) => `
+        <div class="legend-item"><div class="legend-dot" style="background:${chartColors[i%6]}"></div>
+        <span class="legend-name">${esc(x.name)}</span><span class="legend-count">${x.count} (${x.percentage}%)</span></div>
+        <div class="category-bar-wrap"><div class="category-bar" style="width:${(x.count/max)*100}%;background:${chartColors[i%6]}"></div></div>
+      `).join('');
+    }
+  }
+
+  // Recent alerts
+  const alerts = await api('/alerts?page_size=5' + getDeviceParam());
+  if (alerts) {
+    const tbody = document.getElementById('ov-alerts');
+    if (alerts.alerts.length === 0) tbody.innerHTML = '<tr><td colspan="5" class="loading">No alerts</td></tr>';
+    else tbody.innerHTML = alerts.alerts.map(a => `<tr>
+      <td class="mono">${(a.time||'').slice(11,19)}</td>
+      <td><span class="badge ${esc(a.severity)}">${esc(a.severity)}</span></td>
+      <td>${esc(a.attack_class)||'—'}</td>
+      <td class="mono">${esc(a.source_ip)}</td>
+      <td class="mono">${esc(a.dest_ip)}</td>
+    </tr>`).join('');
+  }
+
+  // Top talkers
+  const talkers = await api(`/dashboard/top-talkers?${calcTimeRange(7)}&limit=6${getDeviceParam()}`);
+  if (talkers && talkers.talkers) {
+    const c = document.getElementById('ov-talkers');
+    if (talkers.talkers.length === 0) c.innerHTML = '<div class="loading">No data</div>';
+    else {
+      const max = Math.max(...talkers.talkers.map(t => t.alert_count));
+      c.innerHTML = talkers.talkers.map(t => `
+        <div class="talker-row">
+          <span class="talker-ip">${esc(t.ip)}</span>
+          <div class="talker-bar-wrap"><div class="talker-bar" style="width:${(t.alert_count/max)*100}%;background:${t.alert_count>10?'var(--color-danger)':'var(--color-warning)'}"></div></div>
+          <span class="talker-val">${t.alert_count}</span>
+        </div>
+      `).join('');
+    }
+  }
+
+  // Sparkline
+  const tl = await api(`/dashboard/alert-timeline?${calcTimeRange(7)}&interval=1 hour${getDeviceParam()}`);
+  if (tl && tl.points) {
+    const max = Math.max(...tl.points.map(p => p.value), 1);
+    document.getElementById('ov-sparkline').innerHTML = tl.points.slice(-60).map(p =>
+      `<div class="spark-bar" style="height:${Math.max(2,(p.value/max)*100)}%;opacity:${0.2+(p.value/max)*0.6};background:var(--color-primary)"></div>`
+    ).join('');
+  }
+
+  // Sidebar
+  const sub = await api('/auth/subscription');
+  if (sub) document.getElementById('s-plan').textContent = sub.plan;
+  document.getElementById('s-devices').textContent = ov ? ov.devices_online + '/' + ov.active_devices : '—';
+  const eps = document.getElementById('s-eps');
+  if (eps) eps.textContent = ov.events_per_sec != null ? ov.events_per_sec.toFixed(1) + ' eps' : '—';
+}
+
+function setTrend(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (val > 0) { el.textContent = '↑ ' + val.toFixed(1) + '%'; el.className = 'stat-trend up'; }
+  else if (val < 0) { el.textContent = '↓ ' + Math.abs(val).toFixed(1) + '%'; el.className = 'stat-trend down'; }
+  else { el.textContent = '0%'; el.className = 'stat-trend'; }
+}
+
+// ── ALERTS PAGE ──────────────────────────────────────────────
+let alertsPage = 1;
+async function loadAlerts() {
+  const search = document.getElementById('alerts-search').value;
+  const sev = document.getElementById('alerts-severity').value;
+  let path = `/alerts?page=${alertsPage}&page_size=20`;
+  if (sev) path += '&severity=' + sev;
+  if (search) path += '&source_ip=' + search;
+  const data = await api(path);
+  if (!data) return;
+  const tbody = document.getElementById('alerts-list');
+  if (data.alerts.length === 0) tbody.innerHTML = '<tr><td colspan="6" class="loading">No alerts</td></tr>';
+  else tbody.innerHTML = data.alerts.map(a => `<tr>
+    <td class="mono">${(a.time||'').slice(11,19)}</td>
+    <td><span class="badge ${esc(a.severity)}">${esc(a.severity)}</span></td>
+    <td>${esc(a.attack_class)||'—'}</td>
+    <td class="mono">${esc(a.source_ip)}</td>
+    <td class="mono">${esc(a.dest_ip)}</td>
+    <td class="mono">${(a.confidence*100).toFixed(0)}%</td>
+  </tr>`).join('');
+  const total = data.total || 0;
+  const pages = Math.ceil(total / 20);
+  const p = document.getElementById('alerts-pagination');
+  p.innerHTML = Array.from({length:Math.min(pages,10)}, (_,i) =>
+    `<div class="page-btn ${i+1===alertsPage?'active':''}" onclick="alertsPage=${i+1};loadAlerts()">${i+1}</div>`
+  ).join('') + `<span style="font-size:11px;color:var(--text-3);margin-left:8px">${total} total</span>`;
+}
+
+// ── DEVICES PAGE ─────────────────────────────────────────────
+async function loadDevices() {
+  const devs = await api('/devices');
+  if (!devs) return;
+  const total = devs.length;
+  const online = devs.filter(d => d.status === 'online').length;
+  document.getElementById('dev-total').textContent = total;
+  document.getElementById('dev-online').textContent = online;
+  const grid = document.getElementById('devices-grid');
+  if (total === 0) grid.innerHTML = '<div class="loading">No sensors. Add one above.</div>';
+  else grid.innerHTML = devs.map(d => `
+    <div class="device-card" id="dc-${d.id}">
+      <div class="name"><span class="dot ${esc(d.status)}" id="dot-${d.id}"></span> ${esc(d.name)}</div>
+      <div class="row"><span>Status</span><span class="v" id="ds-${d.id}">${esc(d.status)}</span></div>
+      <div class="row"><span>IP</span><span class="v">${esc(d.ip)||'—'}</span></div>
+      <div class="row"><span>Version</span><span class="v">${esc(d.version)||'—'}</span></div>
+      <div class="row"><span>Last Seen</span><span class="v" id="dl-${d.id}">${d.last_seen_at ? (d.last_seen_at+'').slice(11,19) : '—'}</span></div>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" onclick="testConnection('${jsEsc(d.id)}')">🔌 Test</button>
+        <button class="btn btn-secondary btn-sm" onclick="reinstallDevice('${jsEsc(d.id)}','${jsEsc(d.name)}')">↻ Reinstall</button>
+        <button class="btn btn-secondary btn-sm" onclick="showUninstall('${jsEsc(d.id)}')">⛔ Uninstall</button>
+        <button class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px" onclick="deleteDevice('${jsEsc(d.id)}')">✕ Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function deleteDevice(id) {
+  if (!confirm('Delete this sensor and its data?')) return;
+  const r = await fetch(API + '/devices/' + id, { method: 'DELETE',
+    headers: { Authorization: 'Bearer ' + token } });
+  if (r.ok) loadDevices();
+  else alert('Delete failed');
+}
+
+async function reinstallDevice(id, name) {
+  const r = await fetch(API + '/devices/' + id + '/regenerate-key', { method: 'POST',
+    headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) { alert('Failed to regenerate key'); return; }
+  const data = await r.json();
+  showConnectionInstructions(id, name, data.api_key);
+}
+
+function showUninstall(deviceId) {
+  const sid = esc(deviceId) || 'INSTANCE_ID';
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg-panel);border:1px solid var(--border-bright);border-radius:var(--radius-lg);padding:24px;max-width:540px;width:90%">
+      <div style="font-size:15px;font-weight:600;margin-bottom:12px">⛔ Uninstall Sensor</div>
+      <div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:12px">
+        Run these commands <strong>on the sensor machine</strong> to stop and remove this instance:
+      </div>
+      <div style="background:var(--bg-card);border-radius:var(--radius);padding:14px;font-family:var(--font-mono);font-size:11px;line-height:1.8;overflow-x:auto">
+        <div style="color:var(--text-3)"># Stop and disable this instance</div>
+        <div style="color:var(--text-1)">sudo systemctl stop coreids-${sid}.service</div>
+        <div style="color:var(--text-1)">sudo systemctl disable coreids-${sid}.service</div>
+        <div style="color:var(--text-3);margin-top:6px"># Remove its config and state</div>
+        <div style="color:var(--text-1)">sudo rm -f /etc/coreids/ids-${sid}.conf</div>
+        <div style="color:var(--text-1)">sudo rm -rf /var/lib/ids/${sid}</div>
+      </div>
+      <div style="margin-top:12px;padding:10px;background:rgba(245,158,11,0.1);border-radius:var(--radius);font-size:11px;color:var(--text-2)">
+        To find running instances: <code style="color:var(--text-1)">systemctl list-units 'coreids-*'</code> or <code style="color:var(--text-1)">ps aux | grep coreids</code>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="this.closest('div[style*=&quot;fixed&quot;]').remove()">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function createDevice() {
+  const name = document.getElementById('dev-name').value || 'Sensor-' + Date.now();
+  const r = await fetch(API + '/devices', { method: 'POST',
+    headers: {'Content-Type':'application/json', Authorization:'Bearer '+token},
+    body: JSON.stringify({name}) });
+  if (!r.ok) { alert('Failed: device limit may be reached'); return; }
+  const d = await r.json();
+  showConnectionInstructions(d.id, d.name, d.api_key);
+  document.getElementById('dev-name').value = '';
+  loadDevices();
+}
+
+function showConnectionInstructions(id, name, apiKey) {
+  const backendUrl = window.location.origin;
+  let activeTab = 'linux';
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  function tabContent(tab) {
+    const conf = `cloud_url         = ${backendUrl}\ndevice_id         = ${id}\napi_key           = ${apiKey}`;
+    const autoIface = `IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk \"{print \\$5; exit}\")`;
+    const installCmd = `${autoIface}; curl -sSL ${backendUrl}/install.sh | sudo bash -s -- --device-id=${id} --api-key=${apiKey} --server=${backendUrl} --interface=$IFACE`;
+    const encodedInstallCmd = encodeURIComponent(installCmd);
+    switch (tab) {
+      case 'linux': {
+        const oneLiner = installCmd;
+        const encodedOneLiner = encodeURIComponent(oneLiner);
+        return `
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px">🐧 Linux Server (Ubuntu/Debian/CentOS/Alpine)</div>
+            <div style="color:var(--text-3);font-size:12px;margin-bottom:12px">Copy-paste this one command into your server's terminal:</div>
+            <div style="background:var(--bg-panel);border:1px solid var(--border-bright);border-radius:var(--radius);padding:14px;font-family:var(--font-mono);font-size:12px;line-height:1.6;overflow-x:auto;position:relative" id="oneliner-box">
+              <div style="color:var(--color-accent);margin-bottom:4px">$</div>
+              <div style="word-break:break-all">IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk \"{print \$5; exit}\"); \\</div>
+              <div style="word-break:break-all;padding-left:2ch">curl -sSL ${backendUrl}/install.sh | sudo bash -s -- --device-id=${id} --api-key=${apiKey} --server=${backendUrl} --interface=$IFACE</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn btn-primary btn-sm" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodedOneLiner}'));this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Command',2000)">Copy Command</button>
+            </div>
+            <div style="display:flex;gap:16px;margin-top:12px;font-size:11px;color:var(--text-2)">
+              <span>Self-contained creates config + installs + starts</span>
+              <span>Auto-restarts on reboot (systemd)</span>
+            </div>
+            <div style="margin-top:12px;padding:10px;background:rgba(245,158,11,0.1);border-radius:var(--radius);font-size:11px;color:var(--text-2)">
+              <span style="color:var(--color-warning)"></span> This command auto-detects the active NIC and installs in one step.
+              No separate config file setup needed.
+            </div>
+          </div>`;
+      }
+      case 'windows':
+        return `
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;font-family:var(--font-mono);font-size:12px;line-height:1.8;overflow-x:auto">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="color:var(--text-3)"># Option A: WSL (Recommended)</span>
+              <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText('Install WSL first, then follow the Linux instructions above.')">📋 Copy</button>
+            </div>
+            <div style="color:var(--text-3);margin-bottom:4px">Install WSL (Windows Subsystem for Linux):</div>
+            <div style="color:var(--text-2)">wsl --install -d Ubuntu</div>
+            <div style="color:var(--text-2)">wsl</div>
+            <div style="color:var(--text-3);margin-top:8px">Inside WSL, follow the Linux instructions above.</div>
+            <div style="color:var(--text-3);margin-top:12px">────────────────────────────────────────</div>
+            <div style="color:var(--text-3);margin-top:4px"># Option B: Native Windows (PowerShell as Admin)</div>
+            <div style="color:var(--text-3);margin-top:4px">Install our lightweight log collector:</div>
+            <div style="color:var(--text-2);margin-top:4px">Invoke-WebRequest -Uri ${backendUrl}/install.ps1 -OutFile install.ps1</div>
+            <div style="color:var(--text-2)">powershell -ExecutionPolicy Bypass ./install.ps1 -DeviceId ${id} -ApiKey ${apiKey} -Server ${backendUrl}</div>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:12px;font-size:11px;color:var(--text-2)">
+            <span>✅ Option A: Full detection via WSL + Linux daemon</span>
+            <span>📋 Option B: Lightweight log collector (coming soon)</span>
+          </div>`;
+      case 'router':
+        return `
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-size:12px;line-height:1.6">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px">Router / Switch / Network Device</div>
+            <div style="color:var(--text-3);margin-bottom:14px">Routers cant run the full daemon. Instead, deploy a cheap Linux box (Raspberry Pi, old PC) as a network sensor and configure port mirroring.</div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px">
+                <div style="font-weight:600;color:var(--color-accent);margin-bottom:6px">Step 1: Deploy sensor</div>
+                <div style="font-size:11px;color:var(--text-2);margin-bottom:6px">Deploy CoreIDS on a Linux machine connected to your network:</div>
+                <div style="background:var(--bg-card);border-radius:4px;padding:8px;font-family:var(--font-mono);font-size:10px;word-break:break-all">
+                  <button class="btn btn-secondary btn-sm" style="float:right" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodedInstallCmd}'))">Copy</button>
+                  IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk \"{print \$5; exit}\")<br>
+                  curl -sSL ${backendUrl}/install.sh | sudo bash -s -- --device-id=${id} --api-key=${apiKey} --server=${backendUrl} --interface=$IFACE
+                </div>
+              </div>
+              <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px">
+                <div style="font-weight:600;color:var(--color-accent);margin-bottom:6px">Step 2: Configure port mirroring</div>
+                <div style="font-size:11px;color:var(--text-2);margin-bottom:6px">Tell your router to copy all traffic to the sensors IP:</div>
+                <div style="background:var(--bg-card);border-radius:4px;padding:8px;font-family:var(--font-mono);font-size:10px">
+                  <div style="color:var(--text-3)">Cisco:</div>
+                  <div>monitor session 1 source vlan 100</div>
+                  <div>monitor session 1 dest int Gi1/0/1</div>
+                  <div style="color:var(--text-3);margin-top:4px">OpenWrt:</div>
+                  <div># Sensor is the router itself</div>
+                  <div>opkg install tcpdump</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="background:rgba(139,92,246,0.1);border-radius:var(--radius);padding:12px;font-size:11px">
+              <span style="font-weight:600">Recommended:</span> Use a Raspberry Pi 4 ($35) running Raspberry Pi OS.
+              Install our daemon with the command above, connect it to a switch SPAN port.
+              It captures at 100+ Mbps for home/small office.
+            </div>
+          </div>`;
+      case 'mobile':
+        return `
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-size:12px;line-height:1.6">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px">Mobile (iOS/Android) and IoT</div>
+            <div style="color:var(--text-3);margin-bottom:14px">These devices cant run our daemon directly. The traffic still gets monitored because it flows through your network:</div>
+
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;gap:12px;align-items:flex-start">
+                <div style="font-size:20px">Monitor at the router</div>
+                <div>
+                  <div style="font-weight:600;margin-bottom:2px">Monitor at the router</div>
+                  <div style="font-size:11px;color:var(--text-2)">If theyre on your WiFi the router sees all their traffic. Set up port mirroring (Router tab) to send that traffic to a CoreIDS sensor.</div>
+                </div>
+              </div>
+              <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;gap:12px;align-items:flex-start">
+                <div style="font-size:20px">Route through a sensor</div>
+                <div>
+                  <div style="font-weight:600;margin-bottom:2px">Route through a sensor</div>
+                  <div style="font-size:11px;color:var(--text-2)">Set the device's gateway IP to your sensor box. All traffic passes through the sensor for inspection.</div>
+                </div>
+              </div>
+              <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;gap:12px;align-items:flex-start">
+                <div style="font-size:20px">🔐</div>
+                <div>
+                  <div style="font-weight:600;margin-bottom:2px">VPN tunnel (coming soon)</div>
+                  <div style="font-size:11px;color:var(--text-2)">Install our VPN profile on the device. Traffic routes through our cloud pipeline for detection anywhere.</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:12px;padding:10px;background:rgba(16,185,129,0.1);border-radius:var(--radius);font-size:11px">
+              <span style="font-weight:600">✅ Bottom line:</span> You only need ONE Linux sensor on your network to monitor every device connected to it — phones, laptops, IoT, everything.
+            </div>
+          </div>`;
+    }
+  }
+
+  function render() {
+    const tabs = [
+      {id:'linux', label:'🐧 Linux Server', desc:'Full detection daemon'},
+      {id:'windows', label:'🪟 Windows', desc:'WSL or native'},
+      {id:'router', label:'📡 Router/Modem', desc:'Port mirroring'},
+      {id:'mobile', label:'📱 Mobile/IoT', desc:'Route through sensor'},
+    ];
+    modal.innerHTML = `
+      <div style="background:var(--bg-panel);border:1px solid var(--border-bright);border-radius:var(--radius-lg);padding:24px;max-width:700px;width:90%;max-height:90vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <h2 style="font-family:var(--font-head);font-size:18px">✅ Sensor: ${name}</h2>
+          <button onclick="this.closest('[style]').remove()" style="background:none;border:none;color:var(--text-3);font-size:20px;cursor:pointer">✕</button>
+        </div>
+        <p style="color:var(--text-3);font-size:12px;margin-bottom:12px">Select your device type for connection instructions</p>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:16px;background:var(--bg-card);border-radius:var(--radius);padding:3px">
+          ${tabs.map(t => `
+            <div onclick="showConnTab('${t.id}')" id="ctab-${t.id}" style="padding:8px;border-radius:6px;text-align:center;cursor:pointer;font-size:11px;font-weight:500;transition:all 0.15s;background:${activeTab===t.id?'var(--bg-selected)':'transparent'};color:${activeTab===t.id?'var(--color-primary)':'var(--text-2)'}">
+              <div style="font-size:16px;margin-bottom:2px">${t.label.split(' ')[0]}</div>
+              <div>${t.label.split(' ').slice(1).join(' ')}</div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div id="conn-tab-content">${tabContent(activeTab)}</div>
+
+        <div style="display:flex;gap:12px;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+          <button class="btn btn-primary" onclick="this.closest('[style]').remove()">Done</button>
+          <div style="font-size:11px;color:var(--text-2)">
+            <span style="color:var(--color-danger)">⚠️ Save this API key:</span>
+            <span class="mono" style="font-size:11px">${apiKey}</span>
+            <span style="color:var(--text-3)"> — won't be shown again</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Expose tab switcher globally for this modal
+  window.showConnTab = (tab) => {
+    activeTab = tab;
+    render();
+    const tabs = document.querySelectorAll('[id^="ctab-"]');
+    tabs.forEach(el => {
+      const isActive = el.id === 'ctab-' + tab;
+      el.style.background = isActive ? 'var(--bg-selected)' : 'transparent';
+      el.style.color = isActive ? 'var(--color-primary)' : 'var(--text-2)';
+    });
+    document.getElementById('conn-tab-content').innerHTML = tabContent(tab);
+  };
+
+  render();
+  document.body.appendChild(modal);
+}
+
+async function testConnection(id) {
+  const btn = document.querySelector(`#dc-${id} .btn`);
+  if (btn) btn.textContent = '⏳ Testing...';
+  const result = await api('/devices/' + id + '/test-connection');
+  if (!result) { if (btn) btn.textContent = '🔌 Test'; return; }
+  // Update card status
+  const dot = document.getElementById('dot-' + id);
+  const statusEl = document.getElementById('ds-' + id);
+  const lastEl = document.getElementById('dl-' + id);
+  if (dot) { dot.className = 'dot ' + (result.online ? 'online' : 'offline'); }
+  if (statusEl) statusEl.textContent = result.status;
+  if (lastEl) lastEl.textContent = result.last_seen_human || '—';
+  if (btn) btn.textContent = '🔌 Test';
+  // Show result
+  const existing = document.getElementById('tc-' + id);
+  if (existing) existing.remove();
+  const card = document.getElementById('dc-' + id);
+  const msg = document.createElement('div');
+  msg.id = 'tc-' + id;
+  msg.style.cssText = 'margin-top:6px;padding:6px 10px;border-radius:6px;font-size:11px;' +
+    (result.online ? 'background:rgba(16,185,129,0.15);color:#34d399;' : 'background:rgba(239,68,68,0.15);color:#f87171;');
+  msg.textContent = result.online ? '✅ Connected (' + result.last_seen_human + ')' : '❌ Offline — make sure the daemon is running';
+  card.appendChild(msg);
+  setTimeout(() => msg.remove(), 8000);
+}
+
+// ── SOURCES PAGE ─────────────────────────────────────────────
+async function loadSources() {
+  const data = await api(`/dashboard/top-talkers?${calcTimeRange(7)}&limit=20${getDeviceParam()}`);
+  if (!data) return;
+  const tbody = document.getElementById('sources-list');
+  if (data.talkers.length === 0) tbody.innerHTML = '<tr><td colspan="4" class="loading">No data</td></tr>';
+  else tbody.innerHTML = data.talkers.map(t => `
+    <tr>
+      <td class="mono">${esc(t.ip)}</td>
+      <td class="mono">${t.alert_count}</td>
+      <td class="mono">${(t.last_seen||'').slice(11,19)||'—'}</td>
+      <td class="mono">${t.threat_score != null ? t.threat_score + '/100' : '—'}</td>
+    </tr>
+  `).join('');
+}
+
+// ── SETTINGS PAGE ────────────────────────────────────────────
+function settingsTab(tab) {
+  document.querySelectorAll('.settings-card').forEach(c => c.classList.add('hidden'));
+  document.getElementById('settings-' + tab).classList.remove('hidden');
+  document.querySelectorAll('.settings-nav-item').forEach(n => n.classList.remove('active'));
+}
+async function loadSettings() {
+  const me = await api('/auth/me');
+  if (me) { document.getElementById('set-email').textContent = me.email;
+    document.getElementById('set-name').textContent = me.name;
+    document.getElementById('set-company').textContent = me.company; }
+  const sub = await api('/auth/subscription');
+  if (sub) { document.getElementById('set-plan').textContent = esc(sub.plan);
+    document.getElementById('set-sensors').textContent = sub.sensors_allowed;
+    document.getElementById('set-retention').textContent = sub.retention_days + ' days'; }
+  const plans = await api('/auth/plans');
+  if (plans) {
+    document.getElementById('plans-list').innerHTML = plans.map(p => `
+      <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;text-align:center">
+        <h3 style="font-size:16px;margin-bottom:4px">${esc(p.name)}</h3>
+        <div style="font-size:24px;font-weight:700;font-family:var(--font-head);margin:8px 0">$${(p.price_monthly/100).toFixed(0)}<span style="font-size:12px;color:var(--text-3)">/mo</span></div>
+        <div style="font-size:11px;color:var(--text-2);margin:4px 0">${p.sensors} sensors</div>
+        <div style="font-size:11px;color:var(--text-2);margin:4px 0">${p.retention_days} day retention</div>
+        <button class="btn ${sub && sub.plan===p.id?'btn-secondary':'btn-primary'} btn-sm" style="margin-top:8px" ${sub && sub.plan===p.id?'disabled':''}>${sub && sub.plan===p.id?'Current':'Upgrade'}</button>
+      </div>
+    `).join('');
+  }
+  // API Keys: list devices with masked key + reveal option
+  const devices = await api('/devices');
+  const kl = document.getElementById('settings-keys-list');
+  if (devices && devices.length) {
+    kl.innerHTML = devices.map(d => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px">
+        <div>
+          <div style="font-size:13px;font-weight:500">${esc(d.name)}</div>
+          <div style="font-size:10px;color:var(--text-3);font-family:var(--font-mono)">${esc(d.id)}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <span class="val" id="key-${esc(d.id)}" style="font-family:var(--font-mono);font-size:11px;padding:4px 8px;background:var(--bg-card);border-radius:4px">••••••••</span>
+          <button class="btn btn-secondary btn-sm" onclick="revealKey('${jsEsc(d.id)}')" id="key-btn-${esc(d.id)}">👁️</button>
+          <button class="btn btn-secondary btn-sm" onclick="regenKey('${jsEsc(d.id)}')">🔄</button>
+        </div>
+      </div>
+    `).join('');
+  } else {
+    kl.innerHTML = '<div style="font-size:12px;color:var(--text-3);padding:12px 0">No devices. Create one on the Devices page.</div>';
+  }
+}
+window._revealedKeys = {};
+function revealKey(id) {
+  const el = document.getElementById('key-' + id);
+  const btn = document.getElementById('key-btn-' + id);
+  if (window._revealedKeys[id]) {
+    el.textContent = '••••••••';
+    btn.textContent = '👁️';
+    window._revealedKeys[id] = null;
+  } else if (window._revealedKeys[id] === null) {
+    // Not fetched yet - regenerate to get the key
+    regenKey(id);
+  } else {
+    el.textContent = window._revealedKeys[id];
+    btn.textContent = '🙈';
+  }
+}
+async function regenKey(id) {
+  try {
+    const r = await fetch(API + '/devices/' + id + '/regenerate-key', { method: 'POST',
+      headers: {Authorization:'Bearer '+token} });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail);
+    window._revealedKeys[id] = j.api_key;
+    const el = document.getElementById('key-' + id);
+    el.textContent = j.api_key;
+    document.getElementById('key-btn-' + id).textContent = '🙈';
+  } catch(e) { alert(e.message); }
+}
+
+// ── ANALYTICS PAGE ───────────────────────────────────────────
+async function loadAnalytics() {
+  const ov = await api(`/dashboard/overview?${calcTimeRange(7)}${getDeviceParam()}`);
+  if (ov) {
+    const hasEvents = ov.total_events > 0;
+    document.getElementById('an-events').textContent = hasEvents ? ov.total_events.toLocaleString() : '0';
+    document.getElementById('an-alert-rate').textContent = ov.alert_rate != null ? ov.alert_rate.toFixed(1) + '%' : '—';
+    document.getElementById('an-benign').textContent = ov.benign_pct != null ? ov.benign_pct.toFixed(1) + '%' : '—';
+    document.getElementById('an-latency').textContent = ov.avg_latency_us != null && ov.avg_latency_us > 0 ? ov.avg_latency_us.toFixed(1) + ' µs' : '—';
+  }
+  const cats = await api(`/alerts/categories?${calcTimeRange(7)}${getDeviceParam()}`);
+  if (cats && cats.categories) {
+    const c = document.getElementById('an-protocols');
+    c.innerHTML = cats.categories.map((x,i) => `
+      <div class="legend-item"><div class="legend-dot" style="background:${chartColors[i%6]}"></div>
+      <span class="legend-name">${esc(x.name)}</span><span class="legend-count">${x.count} (${x.percentage}%)</span></div>
+    `).join('') || '<div class="loading">No data</div>';
+  }
+}
+
+// ── TRAFFIC PAGE ─────────────────────────────────────────────
+async function loadTraffic() {
+  const ov = await api(`/dashboard/overview?${calcTimeRange(7)}${getDeviceParam()}`);
+  if (ov) {
+    document.getElementById('tr-total').textContent = ov.traffic_gbps != null ? ov.traffic_gbps.toFixed(2) + ' Gbps' : '—';
+    document.getElementById('tr-inbound').textContent = ov.traffic_in_gbps != null ? ov.traffic_in_gbps.toFixed(2) + ' Gbps' : '—';
+    document.getElementById('tr-outbound').textContent = ov.traffic_out_gbps != null ? ov.traffic_out_gbps.toFixed(2) + ' Gbps' : '—';
+    document.getElementById('tr-peak').textContent = '—';
+  }
+}
+
+// ── LOGS PAGE ────────────────────────────────────────────────
+let logsPage = 1;
+async function loadLogs() {
+  const search = document.getElementById('logs-search').value;
+  const type = document.getElementById('logs-type').value;
+  const protocol = document.getElementById('logs-protocol').value;
+  const sev = document.getElementById('logs-severity').value;
+  let path = `/logs?page=${logsPage}&page_size=20`;
+  if (type) path += '&type=' + type;
+  if (protocol) path += '&protocol=' + protocol;
+  if (sev) path += '&severity=' + sev;
+  if (search) path += '&search=' + search;
+  const data = await api(path);
+  if (!data) return;
+  // Stats
+  const stats = await api('/logs/stats');
+  if (stats) {
+    document.getElementById('lg-total').textContent = stats.total;
+    document.getElementById('lg-firewall').textContent = stats.firewall;
+    document.getElementById('lg-dns').textContent = stats.dns;
+    document.getElementById('lg-http').textContent = stats.http;
+    document.getElementById('lg-system').textContent = stats.system;
+  }
+  const tbody = document.getElementById('logs-list');
+  if (data.logs.length === 0) tbody.innerHTML = '<tr><td colspan="10" class="loading">No logs found</td></tr>';
+  else tbody.innerHTML = data.logs.map(l => `<tr>
+    <td class="mono" style="font-size:11px">${(l.time||'').slice(11,19)}</td>
+    <td><span class="badge ${esc((l.type||'').toLowerCase())}">${esc(l.type)||'—'}</span></td>
+    <td><span class="tag">${esc(l.protocol)||'—'}</span></td>
+    <td class="mono">${esc(l.src_ip)}</td><td class="mono">${esc(l.src_port)||''}</td>
+    <td class="mono">${esc(l.dst_ip)}</td><td class="mono">${esc(l.dst_port)||''}</td>
+    <td><span class="badge ${esc((l.severity||'').toLowerCase())}">${esc(l.severity)||'—'}</span></td>
+    <td>${esc(l.message)||'—'}</td>
+    <td><span class="tag">${esc(l.device)||'—'}</span></td>
+  </tr>`).join('');
+  document.getElementById('logs-info').textContent = `Showing ${data.logs.length} of ${data.total||0} logs`;
+  const total = data.total || 0;
+  const pages = Math.ceil(total / 20);
+  const p = document.getElementById('logs-pagination');
+  p.innerHTML = Array.from({length:Math.min(pages,10)}, (_,i) =>
+    `<div class="page-btn ${i+1===logsPage?'active':''}" onclick="logsPage=${i+1};loadLogs()">${i+1}</div>`
+  ).join('');
+}
+
+// ── RULES PAGE ───────────────────────────────────────────────
+async function loadRules() {
+  const search = document.getElementById('rules-search').value;
+  const cat = document.getElementById('rules-category').value;
+  const sev = document.getElementById('rules-severity').value;
+  const status = document.getElementById('rules-status').value;
+  let path = '/rules';
+  const params = [];
+  if (search) params.push('search=' + search);
+  if (cat) params.push('category=' + cat);
+  if (sev) params.push('severity=' + sev);
+  if (status) params.push('status=' + status);
+  if (params.length) path += '?' + params.join('&');
+  const data = await api(path);
+  if (!data) return;
+  document.getElementById('rl-total').textContent = data.total;
+  document.getElementById('rl-active').textContent = data.active;
+  document.getElementById('rl-disabled').textContent = data.disabled;
+  document.getElementById('rl-triggered').textContent = data.triggered_today;
+  setTrend('rl-triggered-trend', data.triggered_trend);
+  const tbody = document.getElementById('rules-list');
+  if (data.rules.length === 0) tbody.innerHTML = '<tr><td colspan="10" class="loading">No rules</td></tr>';
+  else tbody.innerHTML = data.rules.map(r => `<tr style="opacity:${r.enabled?'1':'0.5'}">
+    <td class="mono">${esc(r.sid)}</td>
+    <td>${esc(r.name)}</td>
+    <td><span class="badge info">${esc(r.category)}</span></td>
+    <td><span class="badge ${esc(r.severity)}">${esc(r.severity)}</span></td>
+    <td><span class="tag">${esc(r.protocol)}</span></td>
+    <td><span class="tag">${esc(r.action)}</span></td>
+    <td class="mono">${r.triggers}</td>
+    <td class="mono" style="font-size:10px">${esc(r.last_hit)||'—'}</td>
+    <td><div class="toggle-switch ${r.enabled?'on':''}" onclick="toggleRule(this,'${jsEsc(r.id)}')"></div></td>
+    <td class="row-action" style="cursor:pointer">›</td>
+  </tr>`).join('');
+}
+
+function toggleRule(el, id) {
+  const wasOn = el.classList.contains('on');
+  el.classList.toggle('on');
+  const row = el.closest('tr');
+  row.style.opacity = wasOn ? '0.5' : '1';
+  fetch(API + '/rules/' + id + '/toggle', { method: 'PATCH',
+    headers: {Authorization:'Bearer '+token} }).catch(() => { el.classList.toggle('on'); });
+}
+
+function showNewRuleForm(editRule) {
+  const isEdit = !!editRule;
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg-panel);border:1px solid var(--border-bright);border-radius:var(--radius-lg);padding:24px;max-width:460px;width:90%">
+      <div style="font-size:15px;font-weight:600;margin-bottom:16px">${isEdit ? 'Edit Rule' : 'Create Rule'}</div>
+      <div style="display:grid;gap:12px">
+        <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Rule Name</label>
+          <input id="rule-name" value="${isEdit ? esc(editRule.name) : ''}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px" placeholder="e.g. Block SQLi Attempts"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Category</label>
+            <select id="rule-cat" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+              <option ${isEdit && editRule.category==='Web Attack'?'selected':''}>Web Attack</option>
+              <option ${isEdit && editRule.category==='Malware'?'selected':''}>Malware</option>
+              <option ${isEdit && editRule.category==='Recon'?'selected':''}>Recon</option>
+              <option ${isEdit && editRule.category==='Policy'?'selected':''}>Policy</option>
+              <option ${isEdit && editRule.category==='Brute Force'?'selected':''}>Brute Force</option>
+            </select></div>
+          <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Severity</label>
+            <select id="rule-sev" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+              <option ${isEdit && editRule.severity==='High'?'selected':''}>High</option>
+              <option ${isEdit && editRule.severity==='Medium'?'selected':''} selected>Medium</option>
+              <option ${isEdit && editRule.severity==='Low'?'selected':''}>Low</option>
+            </select></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Protocol</label>
+            <select id="rule-proto" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+              <option ${isEdit && editRule.protocol==='TCP'?'selected':''}>TCP</option>
+              <option ${isEdit && editRule.protocol==='UDP'?'selected':''}>UDP</option>
+              <option ${isEdit && editRule.protocol==='ICMP'?'selected':''}>ICMP</option>
+              <option ${isEdit && editRule.protocol==='HTTP'?'selected':''}>HTTP</option>
+              <option ${isEdit && editRule.protocol==='DNS'?'selected':''}>DNS</option>
+            </select></div>
+          <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Action</label>
+            <select id="rule-action" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+              <option ${isEdit && editRule.action==='Alert'?'selected':''}>Alert</option>
+              <option ${isEdit && editRule.action==='Block'?'selected':''}>Block</option>
+              <option ${isEdit && editRule.action==='Log'?'selected':''}>Log</option>
+            </select></div>
+        </div>
+        <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Condition (optional)</label>
+          <textarea id="rule-cond" rows="2" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;resize:vertical" placeholder="e.g. dst_port == 443 && payload contains 'select'">${isEdit ? esc(editRule.condition)||'' : ''}</textarea></div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="this.closest('div[style*=&quot;fixed&quot;]').remove()">Cancel</button>
+        <button class="btn btn-primary" id="rule-save-btn">${isEdit ? 'Update Rule' : 'Create Rule'}</button>
+      </div>
+    </div>`;
+  modal.querySelector('#rule-save-btn').onclick = async () => {
+    const name = modal.querySelector('#rule-name').value;
+    if (!name) { alert('Rule name is required'); return; }
+    const body = {
+      name,
+      category: modal.querySelector('#rule-cat').value,
+      severity: modal.querySelector('#rule-sev').value,
+      protocol: modal.querySelector('#rule-proto').value,
+      action: modal.querySelector('#rule-action').value,
+      condition: modal.querySelector('#rule-cond').value,
+    };
+    try {
+      const url = isEdit ? API + '/rules/' + editRule.id : API + '/rules';
+      const method = isEdit ? 'PUT' : 'POST';
+      const r = await fetch(url, { method,
+        headers: {'Content-Type':'application/json', Authorization:'Bearer '+token},
+        body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail||'Error');
+      modal.remove();
+      loadRules();
+    } catch(e) { alert(e.message); }
+  };
+  document.body.appendChild(modal);
+  setTimeout(() => modal.querySelector('#rule-name').focus(), 100);
+}
+
+// ── REPORTS PAGE ─────────────────────────────────────────────
+async function loadReports() {
+  const data = await api('/reports');
+  if (!data) return;
+  // Templates
+  const tc = document.getElementById('reports-templates');
+  if (data.templates) {
+    tc.innerHTML = data.templates.map(t => `
+      <div class="report-card">
+        <div class="report-card-icon">${esc(t.icon)||'📄'}</div>
+        <div class="report-card-body">
+          <div class="report-card-name">${esc(t.name)}</div>
+          <div class="report-card-meta">${esc(t.description)}</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="generateReport('${jsEsc(t.id)}')">Generate</button>
+      </div>
+    `).join('');
+  }
+  // Recent reports
+  const tb = document.getElementById('reports-list');
+  if (data.recent && data.recent.length) {
+    tb.innerHTML = data.recent.map(r => `
+      <tr>
+        <td>${esc(r.name)}</td>
+        <td><span class="tag">${esc(r.type)}</span></td>
+        <td class="mono" style="font-size:10px">${esc(r.generated_at)}</td>
+        <td><span class="tag">${esc(r.format)}</span></td>
+        <td style="display:flex;gap:4px"><button class="btn btn-secondary btn-sm" onclick="downloadReport('${jsEsc(r.id)}')">📥</button><button class="btn btn-secondary btn-sm" onclick="deleteReport('${jsEsc(r.id)}')">🗑️</button></td>
+      </tr>
+    `).join('');
+  } else {
+    tb.innerHTML = '<tr><td colspan="5" class="loading">No reports yet</td></tr>';
+  }
+  // Scheduled
+  const ts = document.getElementById('reports-scheduled');
+  if (data.scheduled && data.scheduled.length) {
+    ts.innerHTML = data.scheduled.map(s => `
+      <tr><td>${esc(s.name)}</td><td class="mono">${esc(s.schedule)}</td><td>${esc(s.recipients)}</td><td><div class="toggle-switch ${s.active?'on':''}"></div></td></tr>
+    `).join('');
+  } else {
+    ts.innerHTML = '<tr><td colspan="4" class="loading">No scheduled reports</td></tr>';
+  }
+}
+
+function generateReport(templateId) {
+  if (!templateId) {
+    // Show dialog with template picker
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;display:flex;align-items:center;justify-content:center';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    const templates = [
+      {id:'security_summary', name:'Security Summary', icon:'🛡️'},
+      {id:'alert_analysis', name:'Alert Analysis', icon:'🚨'},
+      {id:'network_traffic', name:'Network Traffic', icon:'📡'},
+      {id:'compliance', name:'Compliance', icon:'📋'},
+      {id:'threat_intel', name:'Threat Intel', icon:'🎯'},
+    ];
+    modal.innerHTML = `
+      <div style="background:var(--bg-panel);border:1px solid var(--border-bright);border-radius:var(--radius-lg);padding:24px;max-width:400px;width:90%">
+        <div style="font-size:15px;font-weight:600;margin-bottom:16px">Generate Report</div>
+        <div style="display:grid;gap:10px">${templates.map(t => `
+          <div onclick="this.closest('div[style*=&quot;fixed&quot;]').remove();generateReport('${t.id}')" style="cursor:pointer;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:10px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="this.style.borderColor=''">
+            <span style="font-size:18px">${t.icon}</span>
+            <div><div style="font-size:13px;font-weight:500">${t.name}</div></div>
+          </div>`).join('')}
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-secondary" onclick="this.closest('div[style*=&quot;fixed&quot;]').remove()">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    return;
+  }
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg-panel);border:1px solid var(--border-bright);border-radius:var(--radius-lg);padding:24px;max-width:380px;width:90%">
+      <div style="font-size:15px;font-weight:600;margin-bottom:16px">Generate Report</div>
+      <div style="display:grid;gap:12px">
+        <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Time Range</label>
+          <select id="gen-range" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+            <option value="1h">Last Hour</option>
+            <option value="24h" selected>Last 24 Hours</option>
+            <option value="7d">Last 7 Days</option>
+            <option value="30d">Last 30 Days</option>
+          </select></div>
+        <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Format</label>
+          <select id="gen-format" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+            <option value="PDF">PDF</option>
+            <option value="CSV">CSV</option>
+            <option value="JSON">JSON</option>
+          </select></div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="this.closest('div[style*=&quot;fixed&quot;]').remove()">Cancel</button>
+        <button class="btn btn-primary" id="gen-submit-btn">Generate</button>
+      </div>
+    </div>`;
+  modal.querySelector('#gen-submit-btn').onclick = async () => {
+    const range = modal.querySelector('#gen-range').value;
+    const format = modal.querySelector('#gen-format').value;
+    try {
+      const r = await fetch(API + '/reports', { method: 'POST',
+        headers: {'Content-Type':'application/json', Authorization:'Bearer '+token},
+        body: JSON.stringify({template_id:templateId, range, format}) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail||'Error');
+      modal.remove();
+      loadReports();
+    } catch(e) { alert(e.message); }
+  };
+  document.body.appendChild(modal);
+}
+
+async function downloadReport(id) {
+  try {
+    const r = await fetch(API + '/reports/' + id + '/download', {
+      headers: {Authorization:'Bearer '+token}
+    });
+    if (!r.ok) { const j = await r.json(); throw new Error(j.detail||'Download failed'); }
+    const blob = await r.blob();
+    const disposition = r.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?(.+?)"?$/);
+    const filename = match ? match[1] : 'report.txt';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  } catch(e) { alert(e.message); }
+}
+
+function deleteReport(id) {
+  if (!confirm('Delete this report?')) return;
+  fetch(API + '/reports/' + id, { method: 'DELETE',
+    headers: {Authorization:'Bearer '+token} }).then(() => loadReports());
+}
+
+function scheduleReport() {
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;display:flex;align-items:center;justify-content:center';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg-panel);border:1px solid var(--border-bright);border-radius:var(--radius-lg);padding:24px;max-width:420px;width:90%">
+      <div style="font-size:15px;font-weight:600;margin-bottom:16px">Schedule Report</div>
+      <div style="display:grid;gap:12px">
+        <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Report Name</label>
+          <input id="sched-name" value="Daily Security Summary" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px"></div>
+        <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Schedule (cron)</label>
+          <input id="sched-cron" value="0 0 * * *" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px">
+          <div style="font-size:10px;color:var(--text-3);margin-top:2px">Common: <code style="cursor:pointer" onclick="document.getElementById('sched-cron').value='0 0 * * *'">daily</code> · <code style="cursor:pointer" onclick="document.getElementById('sched-cron').value='0 * * * *'">hourly</code> · <code style="cursor:pointer" onclick="document.getElementById('sched-cron').value='0 0 * * 1'">weekly</code></div></div>
+        <div><label style="font-size:11px;color:var(--text-3);display:block;margin-bottom:3px">Email Recipients</label>
+          <input id="sched-recip" value="soc@corp.com" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px" placeholder="soc@corp.com"></div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="this.closest('div[style*=&quot;fixed&quot;]').remove()">Cancel</button>
+        <button class="btn btn-primary" id="sched-submit-btn">Schedule</button>
+      </div>
+    </div>`;
+  modal.querySelector('#sched-submit-btn').onclick = async () => {
+    const name = modal.querySelector('#sched-name').value;
+    if (!name) { alert('Name is required'); return; }
+    const cron = modal.querySelector('#sched-cron').value || '0 0 * * *';
+    const recipients = modal.querySelector('#sched-recip').value || 'soc@corp.com';
+    try {
+      const r = await fetch(API + '/reports/schedule', { method: 'POST',
+        headers: {'Content-Type':'application/json', Authorization:'Bearer '+token},
+        body: JSON.stringify({name, schedule:cron, recipients}) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail||'Error');
+      modal.remove();
+      loadReports();
+    } catch(e) { alert(e.message); }
+  };
+  document.body.appendChild(modal);
+  setTimeout(() => modal.querySelector('#sched-name').focus(), 100);
+}
+
+// ── RULES: Import / Export ────────────────────────────────────
+function importRules() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async () => {
+    try {
+      const text = await input.files[0].text();
+      const rules = JSON.parse(text);
+      const r = await fetch(API + '/rules/import', { method: 'POST',
+        headers: {'Content-Type':'application/json', Authorization:'Bearer '+token},
+        body: JSON.stringify(rules) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail);
+      loadRules();
+      alert(`Imported ${j.imported} rules`);
+    } catch(e) { alert('Import failed: '+e.message); }
+  };
+  input.click();
+}
+
+async function exportRules() {
+  try {
+    const r = await fetch(API + '/rules/export', { headers: {Authorization:'Bearer '+token} });
+    if (!r.ok) throw new Error('Export failed');
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'coreids_rules.json';
+    a.click();
+  } catch(e) { alert(e.message); }
+}
+
+// ── LOGS: More Filters / Export ───────────────────────────────
+function toggleLogFilters() {
+  const bar = document.getElementById('logs-filters-extended');
+  if (bar) bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
+}
+
+async function exportLogs() {
+  try {
+    const r = await fetch(API + '/logs/export', { headers: {Authorization:'Bearer '+token} });
+    if (!r.ok) throw new Error('Export failed');
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'coreids_logs.csv';
+    a.click();
+  } catch(e) { alert(e.message); }
+}
+
+// ── Device Selector ─────────────────────────────────────────
+let selectedDevice = localStorage.getItem('selectedDevice') || '';
+function getDeviceParam() { return selectedDevice ? '&device_id=' + selectedDevice : ''; }
+async function loadDeviceSelector() {
+  const sel = document.getElementById('device-selector');
+  if (!sel) return;
+  const devices = await api('/devices');
+  if (!devices) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All Devices</option>' + devices.map(d =>
+    `<option value="${esc(d.id)}" ${d.id===current||d.id===selectedDevice?'selected':''}>${esc(d.name)}</option>`
+  ).join('');
+  selectedDevice = sel.value;
+}
+function onDeviceChange() {
+  const sel = document.getElementById('device-selector');
+  selectedDevice = sel ? sel.value : '';
+  if (selectedDevice) localStorage.setItem('selectedDevice', selectedDevice);
+  else localStorage.removeItem('selectedDevice');
+  refreshAll();
+}
+
+// ── Polling ──────────────────────────────────────────────────
+let pollInterval;
+function startPolling() { pollInterval = setInterval(refreshAll, 15000); }
+
+// ── WebSocket real-time alerts ───────────────────────────────
+let ws = null;
+let wsReconnectTimer = null;
+function connectWebSocket() {
+  if (ws) { try { ws.close(); } catch(e){} ws = null; }
+  if (!token) return;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = proto + '//' + location.host + '/ws/alerts?token=' + encodeURIComponent(token);
+  try {
+    ws = new WebSocket(url);
+    ws.onmessage = function(ev) {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'alert') {
+          // Prepend to overview recent alerts table
+          const tbody = document.getElementById('ov-alerts');
+          if (tbody) {
+            const d = msg.data;
+            const row = document.createElement('tr');
+            row.innerHTML = '<td>' + (d.time||'').slice(11,19) + '</td>' +
+              '<td><span class="badge ' + esc(d.severity) + '">' + esc(d.severity) + '</td>' +
+              '<td>' + esc(d.attack_class||'—') + '</td>' +
+              '<td class="mono">' + esc(d.source_ip) + '</td>' +
+              '<td class="mono">' + esc(d.dest_ip) + '</td>';
+            tbody.insertBefore(row, tbody.firstChild);
+            while (tbody.children.length > 5) tbody.removeChild(tbody.lastChild);
+          }
+          // Update alerts page if active
+          if (document.getElementById('page-alerts').classList.contains('active')) loadAlerts();
+          // Update overview stats
+          refreshOverview();
+        }
+      } catch(e) {}
+    };
+    ws.onclose = function() {
+      ws = null;
+      if (token) wsReconnectTimer = setTimeout(connectWebSocket, 5000);
+    };
+    ws.onerror = function() { ws.close(); };
+  } catch(e) { ws = null; }
+}
+function disconnectWebSocket() {
+  clearTimeout(wsReconnectTimer);
+  if (ws) { try { ws.close(); } catch(e){} ws = null; }
+}
+
+async function refreshAll() {
+  if (!token) return;
+  await refreshOverview();
+  loadDeviceSelector();
+  loadDevices();
+  loadTraffic();
+  if (document.getElementById('page-alerts').classList.contains('active')) loadAlerts();
+  if (document.getElementById('page-logs').classList.contains('active')) loadLogs();
+  if (document.getElementById('page-rules').classList.contains('active')) loadRules();
+  if (document.getElementById('page-reports').classList.contains('active')) loadReports();
+}
+
+// ── Init ─────────────────────────────────────────────────────
+updateUI();
+if (token) { refreshAll(); startPolling(); connectWebSocket(); }
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.env.*
+secrets.yml
+credentials.json
+*.db
+*.sqlite3
+.git
+.gitignore
+*.log
+*.md
+Dockerfile
+.dockerignore

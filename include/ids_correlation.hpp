@@ -103,6 +103,18 @@ public:
         : cfg_(cfg), limits_(limits), win_(win), ms_(ms), da_(da), sa_(sa),
           repeat_cfg_(repeat_cfg) {}
 
+    void reconfig(CorrelationConfig       cfg,
+                  CorrelationLimits       limits,
+                  MultiStageConfig        ms,
+                  DistributedAttackConfig da,
+                  SlowAttackConfig        sa) {
+        cfg_   = cfg;
+        limits_= limits;
+        ms_    = ms;
+        da_    = da;
+        sa_    = sa;
+    }
+
     CorrelationResult process(const ReasoningResult& res,
                               const Event& ev,
                               const GlobalState& gs) {
@@ -196,13 +208,16 @@ public:
                    std::chrono::duration<float>(dq.front().time.time_since_epoch()).count() < cutoff)
                 dq.pop_front();
 
-        // Expire campaigns
+        // Expire campaigns — erase inactive
+        std::vector<std::string> expired;
         for (auto& [id, c] : campaigns_) {
-            if (!c.active) continue;
+            if (!c.active) { expired.push_back(id); continue; }
             float idle = std::chrono::duration<float>(
                 std::chrono::steady_clock::now() - c.last_seen).count();
-            if (idle > cfg_.campaign.campaign_idle_timeout_s) c.active = false;
+            if (idle > cfg_.campaign.campaign_idle_timeout_s)
+                expired.push_back(id);
         }
+        for (const auto& eid : expired) campaigns_.erase(eid);
     }
 
     void reset(const StateKey& key) {
@@ -269,8 +284,7 @@ private:
     }
 
     void update_campaign(const AlertRecord& ar, CorrelationResult& cr) {
-        (void)cr;  // campaign result written to store; caller reads via active_campaigns()
-        // Look for existing campaign matching this IP
+        (void)cr;
         for (auto& [id, c] : campaigns_) {
             if (!c.active) continue;
             bool src_match = false;
@@ -279,8 +293,15 @@ private:
             c.last_seen   = std::chrono::steady_clock::now();
             c.event_count++;
             c.max_score   = std::max(c.max_score, ar.score);
-            c.sources.push_back(ar.source);
-            c.hosts.push_back(ar.destination);
+            if (c.sources.empty() || c.sources.back() != ar.source)
+                c.sources.push_back(ar.source);
+            if (c.hosts.empty() || c.hosts.back() != ar.destination)
+                c.hosts.push_back(ar.destination);
+            constexpr size_t kMaxCampaignSources = 2048;
+            if (c.sources.size() > kMaxCampaignSources) c.sources.erase(c.sources.begin(),
+                c.sources.end() - kMaxCampaignSources / 2);
+            if (c.hosts.size() > kMaxCampaignSources) c.hosts.erase(c.hosts.begin(),
+                c.hosts.end() - kMaxCampaignSources / 2);
             return;
         }
 

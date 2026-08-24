@@ -163,6 +163,8 @@ inline bool load_model(const std::string& path, ModelParams& out) noexcept {
         // L2 layer blobs
         uint32_t num_l2 = 0;
         read_u32(num_l2);
+        constexpr size_t kMaxL2Layers = 64;
+        if (num_l2 > kMaxL2Layers) return false;
         constexpr size_t l2_blob_size = kSSMStateDim
                                       + kSSMStateDim * kSSMStateDim * 3
                                       + kSSMStateDim;
@@ -297,18 +299,18 @@ public:
             ModelParams m;
             std::string reason;
             if (!load_model(path, m)) {
-                last_error_ = "load_model failed: " + path;
+                std::lock_guard<std::mutex> lk(mu_); last_error_ = "load_model failed: " + path;
                 return false;
             }
             if (!validate_model(m, &reason)) {
-                last_error_ = "validate_model failed: " + reason;
+                std::lock_guard<std::mutex> lk(mu_); last_error_ = "validate_model failed: " + reason;
                 return false;
             }
             std::lock_guard<std::mutex> lk(mu_);
             staged_ = std::make_shared<ModelParams>(std::move(m));
             return true;
         } catch (...) {
-            last_error_ = "stage_model: unexpected exception";
+            std::lock_guard<std::mutex> lk(mu_); last_error_ = "stage_model: unexpected exception";
             return false;
         }
     }
@@ -318,14 +320,14 @@ public:
         try {
             std::string reason;
             if (!validate_model(m, &reason)) {
-                last_error_ = "validate_model failed: " + reason;
+                std::lock_guard<std::mutex> lk(mu_); last_error_ = "validate_model failed: " + reason;
                 return false;
             }
             std::lock_guard<std::mutex> lk(mu_);
             staged_ = std::make_shared<ModelParams>(std::move(m));
             return true;
         } catch (...) {
-            last_error_ = "stage_model: unexpected exception";
+            std::lock_guard<std::mutex> lk(mu_); last_error_ = "stage_model: unexpected exception";
             return false;
         }
     }
@@ -339,39 +341,30 @@ public:
                 last_error_ = "no model staged";
                 return false;
             }
-            // Keep rollback history
-            if (active_) {
-                history_.push_front(active_);
-                if (history_.size() > kMaxHistory) history_.pop_back();
-            }
-            active_  = staged_;
-            staged_  = nullptr;
-            version_.model_version = active_->version;
-            version_.loaded_at     = std::chrono::steady_clock::now();
-
-            // Invoke pipeline callback — resets SSM, swaps Params
+            if (active_) history_.push_front(std::move(active_));
+            if (history_.size() > kMaxHistory) history_.pop_back();
+            active_ = std::move(staged_);
+            staged_.reset();
+            // Notify registered callback (e.g. IDS to reset SSM state)
             if (apply_cb_) apply_cb_(*active_);
             return true;
         } catch (...) {
-            last_error_ = "apply_model: exception during apply";
+            last_error_ = "apply_model: exception";
             return false;
         }
     }
 
-    // §6.8 rollback_model
+    // §6.8 rollback_model — revert to previous model version
     bool rollback_model(uint32_t steps_back = 1) noexcept {
         try {
             std::lock_guard<std::mutex> lk(mu_);
             if (steps_back == 0 || steps_back > history_.size()) {
-                last_error_ = "rollback: no history at depth " + std::to_string(steps_back);
+                last_error_ = "rollback_model: invalid steps";
                 return false;
             }
-            auto target  = history_[steps_back - 1];
-            history_.push_front(active_);
-            if (history_.size() > kMaxHistory) history_.pop_back();
-            active_  = target;
-            staged_  = nullptr;
-            version_.model_version = active_ ? active_->version : "";
+            history_.push_front(std::move(active_));
+            active_ = std::move(history_[steps_back]);
+            history_.erase(history_.begin() + steps_back);
             if (apply_cb_ && active_) apply_cb_(*active_);
             return true;
         } catch (...) {
@@ -379,10 +372,9 @@ public:
             return false;
         }
     }
-
     bool                has_staged() const { std::lock_guard<std::mutex> lk(mu_); return staged_ != nullptr; }
     bool                has_active() const { std::lock_guard<std::mutex> lk(mu_); return active_ != nullptr; }
-    std::string         last_error() const { return last_error_; }
+    std::string         last_error() const { std::lock_guard<std::mutex> lk(mu_); return last_error_; }
     const ParameterVersion& version() const { return version_; }
     size_t              history_depth() const { std::lock_guard<std::mutex> lk(mu_); return history_.size(); }
 
@@ -393,7 +385,10 @@ public:
             if (!active_) { last_error_ = "no active model"; return false; }
             auto copy = *active_;
             return save_model(path, copy);
-        } catch (...) { return false; }
+        } catch (...) {
+            std::lock_guard<std::mutex> lk(mu_); last_error_ = "export_model: exception";
+            return false;
+        }
     }
 
 private:

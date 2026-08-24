@@ -54,7 +54,7 @@ inline float fuse_score(const LocalState& ls, const SegmentState& ss,
     for (const auto& r : ctx.records)
         if (r.score > 0.8f) retrieval_boost = std::max(retrieval_boost, w.w_retrieval);
     float rule_boost = ctx.matched_rules.empty() ? 0.f : w.w_rule;
-    float score = w.w_local   * ls.anomaly_score
+    float score = w.w_local   * ls.anomaly_score  // includes AE fusion
                 + w.w_segment * ss.anomaly_trend
                 + w.w_history * gs.anomaly_history
                 + w.w_drift   * std::clamp(gs.drift_score / 10.f, 0.f, 1.f)
@@ -121,16 +121,20 @@ public:
         tokens.push_back(detail::stateToVec(gs.level_states[kNumHierarchyLvl-1]));
         for (const auto& r : ctx.records) tokens.push_back(r.embedding);
 
-        // Single-head attention
+        // Single-head attention — pool output is fused into score
         float scale = 1.f / sqrtf(static_cast<float>(kEmbeddingDim));
         std::vector<float> scores(tokens.size());
         for (size_t i = 0; i < tokens.size(); ++i)
             scores[i] = detail::dot(tokens[0], tokens[i]) * scale;
         detail::softmax(scores);
-        (void)detail::attention_pool(tokens, scores);
+        Vec attended = detail::attention_pool(tokens, scores);
+        float attn_sim = std::clamp(detail::dot(tokens[0], attended) * scale, -1.0f, 1.0f);
 
         // § 3.7 Configurable fusion
         float combined = fuse_score(ls, ss, gs, ctx, fusion);
+        // Boost only from positive attention similarity to avoid saturating confidence.
+        float attn_boost = 0.05f * std::max(0.0f, attn_sim);
+        combined = std::clamp(combined + attn_boost, 0.f, 1.f);
 
         // Rule override
         if (!ctx.matched_rules.empty())

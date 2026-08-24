@@ -65,6 +65,30 @@ public:
 
     uint64_t segment_count() const { return segment_count_; }
 
+    // Serialisable accumulator state (SSM internal state is not persisted)
+    struct AccumState {
+        uint64_t segment_count;
+        size_t   count;
+        float    score_acc;
+        float    rate_acc;
+        size_t   error_count;
+        std::array<int, 8> type_freq;
+    };
+
+    AccumState save_accum() const {
+        return { segment_count_, count_, score_acc_, rate_acc_,
+                 error_count_, type_freq_ };
+    }
+
+    void restore_accum(const AccumState& s) {
+        segment_count_ = s.segment_count;
+        count_         = s.count;
+        score_acc_     = s.score_acc;
+        rate_acc_      = s.rate_acc;
+        error_count_   = s.error_count;
+        type_freq_     = s.type_freq;
+    }
+
 private:
     SegmentState flush(const std::array<float, kSSMStateDim>& ssm_out, Time now) {
         SegmentState s;

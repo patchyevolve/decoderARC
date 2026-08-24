@@ -12,7 +12,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-add_compile_options(-Wall -Wextra)
+add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Wold-style-cast)
 
 # ── Threads (required by ids_sharded.hpp) ─────────────────────
 # FIX: std::thread / std::mutex / std::atomic need -lpthread on Linux.
@@ -29,20 +29,43 @@ target_link_libraries(ids INTERFACE Threads::Threads)
 add_executable(ids_demo ids_example.cpp)
 target_link_libraries(ids_demo PRIVATE ids)
 
+# ── Production daemon ─────────────────────────────────────────
+find_package(CURL QUIET)
+add_executable(ids_production tools/ids_production.cpp)
+target_link_libraries(ids_production PRIVATE ids)
+if(CURL_FOUND)
+    target_link_libraries(ids_production PRIVATE CURL::libcurl)
+else()
+    message(WARNING "libcurl not found — ids_production cloud upload will not work.\n"
+        "  Ubuntu/Debian : sudo apt install libcurl4-openssl-dev\n"
+        "  RHEL/Fedora   : sudo dnf install libcurl-devel")
+endif()
+
+# ── Shared library (C API bridge for Python FFI) ──────────────
+add_library(ids_central SHARED tools/ids_c_api.cpp)
+target_include_directories(ids_central PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(ids_central PRIVATE Threads::Threads)
+set_target_properties(ids_central PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    OUTPUT_NAME ids_central)
+
+# ── Dataset demo ──────────────────────────────────────────────
+add_executable(ids_dataset_demo ids_dataset_demo.cpp)
+target_link_libraries(ids_dataset_demo PRIVATE ids)
+
 # ── Tests ─────────────────────────────────────────────────────
 enable_testing()
 
-if(EXISTS ${CMAKE_SOURCE_DIR}/ids_model_test.cpp)
-    add_executable(ids_model_test ids_model_test.cpp)
-    target_link_libraries(ids_model_test PRIVATE ids)
-    add_test(NAME model_pipeline COMMAND ids_model_test)
-endif()
+# Unit tests — L0, SSM, Memory, Reasoning, Decision
+add_executable(ids_unit_tests tests/ids_unit_tests.cpp)
+target_link_libraries(ids_unit_tests PRIVATE ids)
+add_test(NAME unit_tests COMMAND ids_unit_tests)
 
-if(EXISTS ${CMAKE_SOURCE_DIR}/ids_sharded_test.cpp)
-    add_executable(ids_sharded_test ids_sharded_test.cpp)
-    target_link_libraries(ids_sharded_test PRIVATE ids)
-    add_test(NAME sharded_pipeline COMMAND ids_sharded_test)
-endif()
+# End-to-end dataset evaluation test
+add_executable(ids_e2e_test tests/ids_e2e_test.cpp)
+target_link_libraries(ids_e2e_test PRIVATE ids)
+add_test(NAME e2e_test COMMAND ids_e2e_test)
 
 # ── Live visualizer (optional — needs libpcap + ncurses) ──────
 # FIX 1: find_library only locates the .so/.a, not pcap.h.

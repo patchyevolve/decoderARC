@@ -14,6 +14,7 @@ ENV/
 
 # Distribution / packaging
 build/
+build_cmake/
 dist/
 *.egg-info/
 .eggs/
@@ -32,6 +33,7 @@ dist/
 .coverage
 .coverage.*
 .cache/
+.ruff_cache/
 *.log
 
 # OS files
@@ -43,6 +45,7 @@ dist/
 .ipynb_checkpoints/
 
 # Environment and secrets
+.env
 .env.local
 .env.*.local
 secrets.yml
@@ -56,3 +59,22 @@ pip-wheel-metadata/
 
 # Local project files
 .local/
+*.db
+*.sqlite3
+
+# Compiled binaries (rebuild via cmake)
+ids_comprehensive_demo
+ids_parallel_demo
+ids_specialist_demo
+ids_benchmark
+ids_dataset_demo
+tools/ids_collector
+tools/ids_xdp.o
+backend/libids_central.so
+
+# Real datasets (too large for git, ~2.8GB)
+real_datasets/
+
+# Misc
+analytical wireframe/
+*.docx

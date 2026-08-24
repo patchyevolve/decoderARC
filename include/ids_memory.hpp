@@ -10,14 +10,16 @@
 
 namespace ids {
 
-// ─── VectorStore — thread-safe flat index ─────────────────────
 class VectorStore {
 public:
     void set_max_size(size_t n) { max_size_ = n; }
+    void set_record_ttl(float ttl_s) { ttl_s_ = ttl_s; }
 
     void insert(MemoryRecord rec) {
         std::lock_guard<std::mutex> lk(mu_);
         rec.id = next_id_++;
+        if (records_.size() >= records_.capacity() && records_.size() < max_size_)
+            records_.reserve(std::min(max_size_, records_.capacity() + 4096));
         records_.push_back(std::move(rec));
         if (records_.size() > max_size_) evict();
     }
@@ -54,10 +56,15 @@ public:
         out.reserve(take);
         for (size_t i = 0; i < take; ++i) {
             auto rec = records_[scores[i].second];
-            rec.score = scores[i].first;          // store final score
+            rec.score = scores[i].first;
             out.push_back(rec);
         }
         return out;
+    }
+
+    std::vector<MemoryRecord> all_records() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return records_;
     }
 
     size_t size() const {
@@ -79,6 +86,11 @@ public:
             }), records_.end());
     }
 
+    void clear() {
+        std::lock_guard<std::mutex> lk(mu_);
+        records_.clear();
+    }
+
 private:
     static float l2norm(const Vec& v) {
         float s = 0.f; for (float x : v) s += x*x; return sqrtf(s + 1e-9f);
@@ -89,21 +101,15 @@ private:
         return dot / (anorm * l2norm(b));
     }
     void evict() {
-        // §2.6 eviction order: expired first, then lowest-score
         auto now = std::chrono::steady_clock::now();
-
-        // Pass 1: remove records older than default TTL (24h)
-        constexpr float default_ttl_s = 86400.f;
         records_.erase(
             std::remove_if(records_.begin(), records_.end(),
                 [&](const MemoryRecord& r) {
                     float age = std::chrono::duration<float>(
                         now - r.inserted_at).count();
-                    return age > default_ttl_s;
+                    return age > ttl_s_;
                 }),
             records_.end());
-
-        // Pass 2: if still over limit, drop lowest-score quarter
         if (records_.size() > max_size_) {
             size_t drop = records_.size() / 4;
             std::partial_sort(records_.begin(), records_.begin() + drop,
@@ -119,9 +125,9 @@ private:
     std::vector<MemoryRecord> records_;
     uint64_t                  next_id_  = 0;
     size_t                    max_size_ = 100000;
+    float                     ttl_s_    = 86400.f;
 };
 
-// ─── Rule table ───────────────────────────────────────────────
 struct Rule {
     uint32_t    id;
     std::string name;
@@ -170,7 +176,6 @@ private:
     std::vector<Rule>   rules_;
 };
 
-// ─── Partitioned MemoryStore (§2.3) ───────────────────────────
 struct MemoryStore {
     VectorStore global_store;
     std::unordered_map<std::string, VectorStore> host_store;
@@ -183,7 +188,6 @@ struct MemoryStore {
     mutable std::shared_mutex global_mu;
 };
 
-// § 2.4 Write gating
 inline bool should_write(float anomaly_score, float drift,
                           const RetrievedContext& ctx,
                           Decision decision,
@@ -197,7 +201,6 @@ inline bool should_write(float anomaly_score, float drift,
     return false;
 }
 
-// § 2.5 Scoped write
 inline void write_record(MemoryStore& mem, MemoryRecord rec,
                           const MemoryKey& key, float anomaly_score,
                           const WritePolicy& pol) {
@@ -217,7 +220,6 @@ inline void write_record(MemoryStore& mem, MemoryRecord rec,
         mem.process_store[key.process].insert(rec);
 }
 
-// ─── Retriever (§2.7–2.14) ────────────────────────────────────
 class Retriever {
 public:
     explicit Retriever(MemoryStore&          mem,
@@ -230,19 +232,14 @@ public:
                               const SegmentState& ss,
                               const GlobalState&  gs,
                               const Event&        ev) const {
-        (void)ss;  // segment state available for future scope weighting
+        (void)ss;
         RetrievedContext ctx;
         MemoryKey key = key_from_event(ev);
-
-        (void)(force_cfg_.force_retrieve ||
-               force_cfg_.force_on_block ||
-               gs.drift_score > force_cfg_.drift_force_threshold);  // evaluated via retrieve logic below
 
         float max_age  = time_cfg_.retrieval_max_age_s;
         float tau      = time_cfg_.recency_tau;
         float ws = weights_.w_sim, wa = weights_.w_anomaly, wt = weights_.w_time;
 
-        // Scope order: ip → user → session → host → global (§2.7)
         auto merge = [&](const std::vector<MemoryRecord>& hits) {
             for (auto& h : hits) {
                 bool dup = false;
@@ -267,22 +264,31 @@ public:
             merge(ghits);
         }
 
-        // Sort by score, cap at kTopKRetrieval
+        // Force retrieval: if anomaly or drift exceeds thresholds, boost global search counts
+        bool force = force_cfg_.force_retrieve
+            || (force_cfg_.force_on_block)
+            || (gs.drift_score > force_cfg_.drift_force_threshold);
+        if (force && !ctx.records.empty()) {
+            std::shared_lock glk(mem_.global_mu);
+            auto ghits = mem_.global_store.search(ls.embedding, 4, max_age, tau, ws, wa, wt, 0.5f);
+            merge(ghits);
+        }
+
         std::sort(ctx.records.begin(), ctx.records.end(),
                   [](const MemoryRecord& a, const MemoryRecord& b){ return a.score > b.score; });
         if (ctx.records.size() > kTopKRetrieval)
             ctx.records.resize(kTopKRetrieval);
 
-        // Rule matching
         ctx.matched_rules = mem_.rules.match(ls.anomaly_score, ev.type, ev.source);
         return ctx;
     }
 
     void write(const LocalState& ls, const Event& ev,
-               float anomaly_score, Decision decision,
+               float anomaly_score, float drift,
+               Decision decision,
                const RetrievedContext& ctx,
                const WritePolicy& pol) {
-        if (!should_write(anomaly_score, 0.f, ctx, decision, pol)) return;
+        if (!should_write(anomaly_score, drift, ctx, decision, pol)) return;
         MemoryRecord rec;
         rec.embedding   = ls.embedding;
         rec.score       = anomaly_score;
@@ -325,6 +331,13 @@ public:
         for (auto& [k, vs] : mem_.session_store)  vs.sweep(cfg.record_ttl_s);
         for (auto& [k, vs] : mem_.process_store)  vs.sweep(cfg.record_ttl_s);
     }
+
+    void set_record_ttl(float ttl_s) {
+        mem_.global_store.set_record_ttl(ttl_s);
+    }
+
+    MemoryStore& store() { return mem_; }
+    const MemoryStore& store() const { return mem_; }
 
 private:
     MemoryStore&         mem_;

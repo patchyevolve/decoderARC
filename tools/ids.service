@@ -1,0 +1,21 @@
+[Unit]
+Description=DecoderARC IDS Production Daemon
+Documentation=https://github.com/anomalyco/decoderARC
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ids_production eth0 --config /etc/ids/ids.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+StateDirectory=ids
+StateDirectoryMode=0750
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

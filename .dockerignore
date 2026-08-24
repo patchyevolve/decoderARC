@@ -1,0 +1,16 @@
+build/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+secrets.yml
+credentials.json
+*.db
+.git
+.gitignore
+*.log
+*.md
+frontend/
+backend/
+.vscode/
+.idea/

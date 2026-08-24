@@ -1,7 +1,9 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -40,19 +42,34 @@ struct PayloadFeatures {
     float    entropy   = 0.f, rate_hz = 0.f;
 };
 
+struct FlowStats {
+    uint64_t packets_total = 0, packets_fwd = 0, packets_bwd = 0;
+    uint64_t bytes_total  = 0, bytes_fwd  = 0, bytes_bwd  = 0;
+    float packet_size_mean = 0.f, packet_size_std = 0.f;
+    float packet_size_max  = 0.f, packet_size_min  = 0.f;
+    float iat_mean = 0.f, iat_std = 0.f;
+    float iat_max  = 0.f, iat_min  = 0.f;
+    uint32_t syn_count = 0, fin_count = 0, ack_count = 0, rst_count = 0;
+    float duration = 0.f;
+    float down_up_ratio = 0.f;
+    uint32_t fwd_init_win = 0, bwd_init_win = 0;
+};
+
 struct Event {
     Time             time        = std::chrono::steady_clock::now();
     std::string      source;
     std::string      destination;
     EventType        type        = EventType::Unknown;
     PayloadFeatures  payload;
+    FlowStats        flow;
     std::unordered_map<std::string, std::string> metadata;
 };
 
 // ─── Level outputs ────────────────────────────────────────────
 struct LocalState {
     Vec   embedding     = {};
-    float anomaly_score = 0.f;
+    float anomaly_score = 0.f; // fused local score (Z-score + AE)
+    float ae_score      = 0.f; // autoencoder reconstruction score
     float entropy       = 0.f;
     float burst_metric  = 0.f;
 };
@@ -257,12 +274,15 @@ struct DecisionThresholds {
     float log_threshold    = 0.40f;
     float alert_threshold  = 0.60f;
     float block_threshold  = 0.85f;
+    float escalate_threshold = 0.95f;
 };
 
 inline Decision score_to_decision(float score, const DecisionThresholds& t) {
-    if (score < t.ignore_threshold) return Decision::Ignore;
-    if (score < t.log_threshold)    return Decision::Log;
-    if (score < t.alert_threshold)  return Decision::Alert;
+    if (score < t.ignore_threshold)    return Decision::Ignore;
+    if (score < t.log_threshold)       return Decision::Log;
+    if (score < t.alert_threshold)     return Decision::Alert;
+    if (score < t.block_threshold)     return Decision::Block;
+    if (score >= t.escalate_threshold) return Decision::Escalate;
     return Decision::Block;
 }
 
@@ -297,19 +317,19 @@ struct SkipReasoningConfig {
 };
 
 struct ScoreFusionWeights {
-    float w_local     = 0.50f;
+    float w_local     = 0.35f;
     float w_segment   = 0.25f;
-    float w_history   = 0.15f;
+    float w_history   = 0.20f;
     float w_drift     = 0.10f;
-    float w_retrieval = 0.15f;
-    float w_rule      = 0.10f;
+    float w_retrieval = 0.05f;
+    float w_rule      = 0.05f;
 };
 
 // ─── Decision policy ─────────────────────────────────────────
 struct EscalationConfig {
-    float    escalate_hist        = 0.75f;
+    float    escalate_hist        = 0.85f;
     float    escalate_drift       = 8.0f;
-    uint32_t repeat_escalate_n    = 3;
+    uint32_t repeat_escalate_n    = 10;
     float    repeat_window_s      = 300.f;
     uint32_t multi_host_threshold = 3;
     float    campaign_window_s    = 600.f;
@@ -373,19 +393,6 @@ struct FaultRecord {
     Time        time = std::chrono::steady_clock::now();
 };
 
-struct PipelineStats {
-    std::atomic<uint64_t> events_ingested   {0};
-    std::atomic<uint64_t> events_dropped    {0};
-    std::atomic<uint64_t> reasoning_calls   {0};
-    std::atomic<uint64_t> alerts_emitted    {0};
-    std::atomic<uint64_t> blocks_emitted    {0};
-    std::atomic<uint64_t> escalations       {0};
-    std::atomic<uint64_t> state_resets      {0};
-    std::atomic<uint64_t> memory_evictions  {0};
-    std::atomic<uint64_t> queue_full_events {0};
-    std::atomic<uint64_t> fault_count       {0};
-};
-
 struct HealthStats {
     std::atomic<uint64_t> numeric_faults  {0};
     std::atomic<uint64_t> state_resets    {0};
@@ -395,7 +402,7 @@ struct HealthStats {
     std::atomic<uint64_t> retrieval_fails {0};
     std::atomic<uint64_t> storage_fails   {0};
     std::atomic<uint64_t> thread_restarts {0};
-    bool                  panic_mode      = false;
+    std::atomic<bool>     panic_mode      = false;
 };
 
 struct PanicConfig {
@@ -476,6 +483,13 @@ struct LearningModeConfig {
     bool  log_only         = true;
     bool  collect_baseline = true;
     float duration_s       = 3600.f;
+};
+
+struct OnlineLearningConfig {
+    bool    enabled          = true;
+    float   learning_rate    = 0.001f;    // Small LR for one-step SGD
+    float   min_confidence   = 0.10f;     // Max anomaly score to qualify as "benign"
+    size_t  sample_rate      = 100;       // 1:N stochastic sampling (reduce drift)
 };
 
 struct BaselineConfig {
@@ -581,9 +595,15 @@ struct StageLatency {
     float correlation_avg_us  = 0.f;
     float decision_avg_us     = 0.f;
     float total_avg_us        = 0.f;
+    float ae_avg_us           = 0.f;
+    float specialist_avg_us   = 0.f;
+    float near_miss_avg_us    = 0.f;
+    float online_avg_us       = 0.f;
     float l0_p99_us           = 0.f;
     float retrieval_p99_us    = 0.f;
     float reasoning_p99_us    = 0.f;
+    float ae_p99_us           = 0.f;
+    float online_p99_us       = 0.f;
     float total_p99_us        = 0.f;
 };
 
@@ -626,6 +646,7 @@ struct Metrics {
     std::atomic<uint64_t> queue_overflows   {0};
     std::atomic<uint64_t> campaigns_active  {0};
     std::atomic<uint64_t> baseline_freezes  {0};
+    std::atomic<uint64_t> online_updates    {0};  // Online AE SGD steps
 };
 
 // ─── AggregateMetrics — copyable snapshot for ShardedIDS ────
@@ -639,6 +660,7 @@ struct AggregateMetrics {
     uint64_t memory_writes     = 0;
     uint64_t faults_total      = 0;
     uint64_t campaigns_active  = 0;
+    uint64_t online_updates    = 0;
 };
 
 // ─── Alert ────────────────────────────────────────────────────
@@ -649,6 +671,9 @@ struct Alert {
     std::string   explanation;
     std::string   source;
     std::string   destination;
+    uint16_t      source_port = 0;
+    uint16_t      dest_port = 0;
+    std::string   protocol;
     EventType     event_type;
     Time          time;
     DecisionTrace trace;
@@ -657,5 +682,109 @@ struct Alert {
 using AlertCallback    = std::function<void(const Alert&)>;
 using BlockCallback    = std::function<void(const std::string&)>;
 using EscalateCallback = std::function<void(const Alert&)>;
+
+// ─── NearMissDetector — catches borderline accumulation ──────
+struct NearMissRecord {
+    float score;
+    float time_s;
+};
+
+class NearMissDetector {
+public:
+    NearMissDetector(float window_s = 60.f, size_t threshold = 5, float min_score = 0.25f)
+        : window_s_(window_s), threshold_(threshold), min_score_(min_score) {}
+
+    bool check(const std::string& ip, float score) {
+        if (score >= 0.6f) return false;
+        if (score < min_score_) return false;
+
+        auto& ring = near_misses_[ip];
+        float now = static_cast<float>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count()) / 1000.f;
+        ring.push_back({score, now});
+
+        while (!ring.empty() && (now - ring.front().time_s) > window_s_)
+            ring.pop_front();
+        if (ring.size() > 50) ring.pop_front();
+
+        return ring.size() >= threshold_;
+    }
+
+    void reset() { near_misses_.clear(); }
+
+private:
+    float window_s_;
+    size_t threshold_;
+    float min_score_;
+    std::unordered_map<std::string, std::deque<NearMissRecord>> near_misses_;
+};
+
+// ─── PerIPAggregator — aggregate window scoring per IP ─────
+struct IPWindowEvent {
+    float time_s;
+    float bytes_in;
+    float bytes_out;
+    uint16_t flags;
+    uint8_t protocol;
+    float packet_size;
+};
+
+class PerIPAggregator {
+public:
+    explicit PerIPAggregator(size_t window = 20) : window_(window) {}
+
+    float score(const std::string& ip, const Event& ev) {
+        auto& ring = windows_[ip];
+        float now = static_cast<float>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count()) / 1000.f;
+
+        float t = now;
+        ring.push_back({t,
+            static_cast<float>(ev.payload.bytes_in),
+            static_cast<float>(ev.payload.bytes_out),
+            ev.payload.flags, ev.payload.protocol,
+            ev.flow.packet_size_mean > 0 ? ev.flow.packet_size_mean : 100.f});
+        if (ring.size() > window_) ring.pop_front();
+        if (ring.size() < 4) return 0.f;
+
+        float total_bytes = 0.f;
+        int syn_cnt = 0, rst_cnt = 0, fin_cnt = 0;
+        std::array<int, 256> proto_freq{};
+        for (const auto& w : ring) {
+            total_bytes += w.bytes_in + w.bytes_out;
+            if (w.flags & 0x02) syn_cnt++;
+            if (w.flags & 0x04) rst_cnt++;
+            if (w.flags & 0x01) fin_cnt++;
+            proto_freq[w.protocol]++;
+        }
+        float syn_ratio = static_cast<float>(syn_cnt) / static_cast<float>(ring.size());
+        float rst_ratio = static_cast<float>(rst_cnt) / static_cast<float>(ring.size());
+        float proto_entropy = 0.f;
+        for (int c : proto_freq) {
+            if (!c) continue;
+            float p = static_cast<float>(c) / static_cast<float>(ring.size());
+            proto_entropy -= p * std::log2f(p);
+        }
+        proto_entropy /= 8.f;
+
+        float boost = 0.f;
+        if (syn_ratio > 0.8f && rst_ratio < 0.1f) boost = 0.5f;
+        if (rst_ratio > 0.3f) boost = std::max(boost, 0.4f);
+        if (syn_cnt > 0 && fin_cnt > syn_cnt * 3) boost = std::max(boost, 0.35f);
+        if (total_bytes / static_cast<float>(ring.size()) < 50.f && ring.size() > 10)
+            boost = std::max(boost, 0.3f);
+        if (proto_entropy > 0.5f) boost = std::max(boost, 0.2f);
+
+        return std::clamp(boost, 0.f, 1.f);
+    }
+
+    void reset() { windows_.clear(); }
+
+private:
+    size_t window_;
+    std::unordered_map<std::string, std::deque<IPWindowEvent>> windows_;
+};
 
 }  // namespace ids

@@ -40,19 +40,25 @@ struct BaselineDriftConfig {
     float baseline_drift_alert     = 0.30f;
 };
 
-// ─── Per-scope baseline update ────────────────────────────────
+// ─── Per-scope baseline update with EWMA mean + variance ──────
 inline void update_baseline(ScopeBaseline& b,
                              const LocalState& ls,
                              const SegmentState& ss,
                              const GlobalState& gs,
                              float alpha) {
     if (b.frozen) return;
-    b.avg_anomaly_score += alpha * (ls.anomaly_score - b.avg_anomaly_score);
-    b.avg_rate_hz       += alpha * (ss.rate_mean     - b.avg_rate_hz);
-    b.avg_entropy       += alpha * (ls.entropy       - b.avg_entropy);
-    b.avg_drift         += alpha * (gs.drift_score   - b.avg_drift);
+    auto update_ewma = [alpha](float& mean, float& var, float x) {
+        float delta = x - mean;
+        float mean_new = mean + alpha * delta;
+        var = (1.f - alpha) * (var + alpha * delta * (x - mean));
+        mean = mean_new;
+    };
+    update_ewma(b.avg_anomaly_score, b.variance[0], ls.anomaly_score);
+    b.avg_rate_hz += alpha * (ss.rate_mean - b.avg_rate_hz);
+    b.avg_entropy += alpha * (ls.entropy   - b.avg_entropy);
+    b.avg_drift   += alpha * (gs.drift_score - b.avg_drift);
     for (size_t i = 0; i < kEmbeddingDim; ++i)
-        b.mean[i] += alpha * (ls.embedding[i] - b.mean[i]);
+        update_ewma(b.mean[i], b.variance[i], ls.embedding[i]);
     b.last_update = std::chrono::steady_clock::now();
 }
 
@@ -66,8 +72,14 @@ inline float adaptive_threshold(float baseline_mean, float baseline_std,
     return std::clamp(baseline_mean + k * baseline_std, min_t, max_t);
 }
 
+inline float baseline_variance_mean(const ScopeBaseline& b) {
+    float acc = 0.f;
+    for (size_t i = 0; i < kEmbeddingDim; ++i) acc += b.variance[i];
+    return acc / static_cast<float>(kEmbeddingDim);
+}
+
 inline float scale_anomaly(float raw_score, const ScopeBaseline& b, float eps = 1e-6f) {
-    float std_val = sqrtf(std::max(eps, b.variance[0]));
+    float std_val = sqrtf(std::max(eps, baseline_variance_mean(b)));
     return std::clamp((raw_score - b.avg_anomaly_score) / std_val, 0.f, 1.f);
 }
 
@@ -88,12 +100,8 @@ inline float adaptive_gate(float baseline_noise, float base_gate, float k) {
 class AdaptiveLayer {
 public:
     explicit AdaptiveLayer(AdaptiveThresholdConfig threshold_cfg = {},
-                           AdaptiveDecayConfig     decay_cfg     = {},
-                           AdaptiveRoutingConfig   routing_cfg   = {},
-                           AdaptationLimits        limits        = {},
-                           BaselineDriftConfig     drift_cfg     = {})
-        : threshold_cfg_(threshold_cfg), decay_cfg_(decay_cfg),
-          routing_cfg_(routing_cfg), limits_(limits), drift_cfg_(drift_cfg) {}
+                           AdaptationLimits        limits        = {})
+        : threshold_cfg_(threshold_cfg), limits_(limits) {}
 
     void update(const LocalState& ls, const SegmentState& ss,
                 const GlobalState& gs, const Event& ev,
@@ -155,7 +163,7 @@ public:
     DecisionThresholds adapted_thresholds() const {
         DecisionThresholds t;
         float mean = store_.global_baseline.avg_anomaly_score;
-        float std_val = sqrtf(std::max(1e-6f, store_.global_baseline.variance[0]));
+        float std_val = sqrtf(std::max(1e-6f, baseline_variance_mean(store_.global_baseline)));
         t.alert_threshold = adaptive_threshold(
             mean, std_val, threshold_cfg_.k_alert,
             threshold_cfg_.min_alert_threshold,
@@ -203,10 +211,7 @@ public:
 
 private:
     AdaptiveThresholdConfig threshold_cfg_;
-    AdaptiveDecayConfig     decay_cfg_;
-    AdaptiveRoutingConfig   routing_cfg_;
     AdaptationLimits        limits_;
-    BaselineDriftConfig     drift_cfg_;
     BaselineStore           store_;
     mutable AdaptationStats stats_;
     float                   last_alert_threshold_ = 0.f;

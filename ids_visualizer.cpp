@@ -201,16 +201,11 @@ int main(int argc, char* argv[]) {
 
     // ── Pipeline config ───────────────────────────────────────
     ids::IDSConfig cfg;
-    cfg.gate.gate_threshold         = 0.10f;
-    cfg.thresholds.alert_threshold  = 0.25f;
-    cfg.thresholds.block_threshold  = 0.75f;
-    cfg.thresholds.log_threshold    = 0.10f;
-    cfg.thresholds.ignore_threshold = 0.05f;
+    cfg.gate.gate_threshold         = 0.35f;
     cfg.write_policy.memory_write_gate  = 0.45f;
     cfg.write_policy.write_on_block     = true;
     cfg.force_gate.force_local          = 0.85f;
     cfg.force_gate.force_on_rule_match  = true;
-    cfg.escalation.repeat_escalate_n    = 5;
     cfg.panic.panic_threshold           = 500;
     cfg.telemetry.latency_tracking      = true;
     cfg.telemetry.drift_series          = true;

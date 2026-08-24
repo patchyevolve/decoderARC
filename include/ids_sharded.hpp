@@ -96,7 +96,7 @@ struct Shard {
     std::atomic<bool>     running{false};
     std::atomic<uint64_t> processed{0};
     std::atomic<uint64_t> heartbeat{0};  // incremented each loop tick for watchdog
-    float                 avg_latency_us = 0.f;
+    std::atomic<float>    avg_latency_us{0.f};
 
     Shard(uint32_t shard_id, const IDSConfig& cfg, size_t q_depth)
         : id(shard_id), pipeline(cfg), queue(q_depth) {}
@@ -242,7 +242,7 @@ public:
             ss.shard_id       = s->id;
             ss.queue_depth    = s->queue.size();
             ss.drops          = static_cast<size_t>(s->queue.drops());
-            ss.avg_latency_us = s->avg_latency_us;
+            ss.avg_latency_us = s->avg_latency_us.load(std::memory_order_relaxed);
             out.push_back(ss);
         }
         return out;
@@ -265,6 +265,7 @@ public:
         uint64_t faults_total      = 0;
         uint64_t campaigns_active  = 0;
         uint64_t baseline_freezes  = 0;
+        uint64_t online_updates    = 0;
     };
 
     AggregateMetrics aggregate_metrics() const {
@@ -284,6 +285,7 @@ public:
             agg.faults_total      += m.faults_total.load();
             agg.campaigns_active  += m.campaigns_active.load();
             agg.baseline_freezes  += m.baseline_freezes.load();
+            agg.online_updates    += m.online_updates.load();
         }
         return agg;
     }
@@ -296,6 +298,7 @@ public:
         for (const auto& s : shards_) {
             std::string prefix = dir + "/shard_" + std::to_string(s->id);
             ok &= s->pipeline.save_state(prefix + "_state.bin");
+            ok &= s->pipeline.save_memory(prefix + "_memory.json");
             ok &= s->pipeline.save_config(prefix + "_config.json");
         }
         return ok;
@@ -304,7 +307,7 @@ public:
     bool load_all(const std::string& dir) noexcept {
         for (const auto& s : shards_) {
             std::string prefix = dir + "/shard_" + std::to_string(s->id);
-            s->pipeline.load_state(prefix + "_state.bin");  // non-fatal on miss
+            s->pipeline.load_state(prefix + "_state.bin");
         }
         return true;
     }
@@ -346,7 +349,9 @@ private:
             float us = std::chrono::duration<float, std::micro>(
                            std::chrono::steady_clock::now() - t0).count();
             // EMA latency update (α=0.01 per §9.16)
-            s.avg_latency_us += 0.01f * (us - s.avg_latency_us);
+            s.avg_latency_us.store(
+                s.avg_latency_us.load(std::memory_order_relaxed) + 0.01f * (us - s.avg_latency_us.load(std::memory_order_relaxed)),
+                std::memory_order_relaxed);
             ++s.processed;
             ++s.heartbeat;
         }

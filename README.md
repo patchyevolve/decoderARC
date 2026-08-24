@@ -1,162 +1,228 @@
-# IDS — Intrusion Detection System v2
+# CoreIDS — Intrusion Detection System
 
-A production-grade, header-only C++17 intrusion detection engine built around a hierarchical Mamba-style Selective State Space Model (SSM) pipeline. It processes network and system events in real time, detects anomalies, correlates multi-stage attack campaigns, and makes block/alert/escalate decisions — all in under 300 µs per event on a single core.
+A production-grade, real-time IDS as a SaaS platform. Edge sensors (daemons) capture network packets, detect threats using a 9-step C++17 pipeline, and stream alerts to a web dashboard via a FastAPI backend.
+
+**Detection latency**: under 300 µs per event on a single core.
 
 ---
 
 ## What Is This?
 
-IDS is a self-contained detection engine you embed directly into your application, network appliance, or monitoring stack. It is not a standalone daemon or a signature-only scanner. It combines:
+CoreIDS is a complete IDS platform with three components:
 
-- statistical anomaly detection (per-event, per-IP, per-host, per-user)
-- a Mamba-style SSM hierarchy that learns and tracks behavioral drift over time
-- a partitioned vector memory store for scoped retrieval of past attack context
-- an attention-based reasoning layer that fuses all signals into a final decision
-- a correlation engine that links individual events into tracked campaigns
-- a per-scope adaptive baseline that self-tunes thresholds to observed traffic
+| Component | Technology | Location |
+|-----------|-----------|----------|
+| **Daemon** (sensor) | C++17, AF_PACKET capture | `tools/ids_production.cpp`, `include/` |
+| **Backend** (API) | Python 3.12, FastAPI, SQLAlchemy | `backend/app/` |
+| **Frontend** (dashboard) | Plain HTML/JS SPA | `backend/static/index.html` |
 
-The result is a system that catches both known attacks (via rules and signatures) and unknown/novel attacks (via behavioral drift and anomaly scoring) while suppressing noise from benign traffic.
+The daemon runs at customer sites, captures packets, and detects threats locally or forwards events to the backend for central inference. The backend stores alerts, runs the IDS engine via a C shared library, and pushes real-time updates to the browser dashboard via WebSocket.
 
 ---
 
 ## What Can It Detect?
 
 - Port scans and reconnaissance
-- Brute-force and credential stuffing attacks
-- DoS / DDoS bursts (single source and distributed, N sources → same host)
+- Brute-force and credential stuffing
+- DoS / DDoS bursts (single source and distributed)
 - Lateral movement sequences
-- APT / slow-burn attacks (low-and-slow accumulation over hours)
+- APT / slow-burn attacks
 - Ransomware and file system anomalies
 - Encrypted C2 channels and data exfiltration
-- Auth anomalies and privilege escalation
-- Multi-stage attack chains (port scan → brute force → lateral movement → exfil)
-- Any custom attack pattern defined via rules or multi-stage sequence configs
+- Multi-stage attack chains (scan → brute force → lateral → exfil)
+- Any custom pattern via rules or multi-stage sequence configs
 
 ---
 
 ## Architecture
 
-Events flow through a fixed 9-step pipeline defined in `ids.hpp`:
+```
+┌─────────────────────┐
+│   Frontend (SPA)    │  Plain HTML/JS, dark theme, 10 pages
+│   index.html        │  WebSocket real-time alerts + 15s polling
+└─────────┬───────────┘
+          │ HTTP(S) + JWT auth
+┌─────────v───────────┐
+│   Backend (FastAPI) │  Python 3.12, 8 API routers
+│   4 runtime workers │  C bridge to libids_central.so
+└─────────┬───────────┘
+          │
+    ┌─────┴─────┐
+    │           │
+┌───v───┐  ┌───v───────────────┐
+│PostgreSQL│ │  libids_central.so │  C++ IDS engine (4 shards/user)
+│ 10 tables│ │  ShardedIDS        │
+└───────┘  └───────▲───────────────┘
+                   │
+          ┌────────┴────────┐
+          │   Daemon        │  C++17, AF_PACKET, CloudUploader
+          │ ids_production  │  Docker or native binary
+          └─────────────────┘
+          Customer sites (edge)
+```
+
+### 9-Step Detection Pipeline
+
+Defined in `include/ids.hpp`:
 
 ```
 Event
-  │
-  ├─ [1]   L0 — LocalAnalyzer (ids_level0.hpp)
-  │              sliding window, 64-dim embedding, per-event anomaly score
-  │
-  ├─ [2]   L1 — SegmentSSM per source IP (ids_level1.hpp)
-  │              Mamba SSM accumulates events, flushes on:
-  │              count / wall-time / anomaly spike / session-end / type change
-  │
-  ├─ [3-4] L2 Hierarchy — HierarchicalSSM (ids_ssm.hpp)
-  │              L2s (short, per-IP) → L2m (mid, per-host) → L2l (global)
-  │              signal-driven conditional promotion; skip rules suppress noise
-  │              NaN/Inf + energy clamp after every SSM step
-  │
-  ├─ [5]   Memory Write — Retriever (ids_memory.hpp)
-  │              score-gated; partitioned by IP / user / host / session / process
-  │
-  ├─ [6]   Retrieval — scoped narrow→broad (IP → user → session → host → global)
-  │              top-8 records, recency-weighted, deduped
-  │
-  ├─ [7]   Reasoning Gate + Score Fusion (ids_reasoning.hpp)
-  │              weighted 6-signal gate; single-head attention over token set;
-  │              configurable ScoreFusionWeights; force/skip rules
-  │
-  ├─ [7.5] Correlation Engine (ids_correlation.hpp)
-  │              repeat / multi-stage / distributed / slow-attack detection
-  │              campaign lifecycle tracking
-  │
-  └─ [8]   Decision Engine (ids_decision.hpp)
-               6-step override order, hysteresis, cooldown, escalation
-               post-decision memory write for Block/Escalate
+  ├─ [1]   L0 LocalAnalyzer     — sliding window, 64-dim embedding, Z-score anomaly
+  ├─ [2]   L1 SegmentSSM        — per-IP Mamba SSM, 5-condition flush
+  ├─ [3-4] L2 Hierarchy         — L2s → L2m → L2l, signal-driven promotion
+  ├─ [5]   Memory Write         — score-gated, partitioned by IP/user/host/session
+  ├─ [6]   Retrieval            — cosine similarity, top-8, recency-weighted
+  ├─ [7]   Reasoning Gate       — 6-signal weighted fusion, attention pooling
+  ├─ [7.5] Correlation Engine   — repeat/multi-stage/distributed/slow detection
+  └─ [8]   Decision Engine      — hysteresis, cooldown, escalation, overrides
 ```
 
-### SSM Hierarchy Levels
+### Detection Results (CICIDS2017 datasets)
 
-| Level | Scope | Key | Promotion trigger |
-|-------|-------|-----|-------------------|
-| L0 | per-event | — | every event |
-| L1 | per-IP session | source IP | flush rules (count / time / anomaly / session-end / type change) |
-| L2s | short-term per-IP | source IP | on L1 flush; skip if anomaly_trend < 0.20 and segment_count < 3 |
-| L2m | mid-term per-host | destination host | every 10 L2s updates OR anomaly_history > 0.55 OR drift > 3.0 |
-| L2l | global | singleton | every 60 L2m updates OR drift > 8.0 OR anomaly_history > 0.70 |
+| Attack Type | Recall | F1 |
+|-------------|--------|-----|
+| DoS Hulk | 100% | 100% |
+| FTP Brute Force | 100% | 100% |
+| DDoS Loit | 79.9% | 88.8% |
+| SSH Brute Force | 59.8% | 74.9% |
+| Port Scan | 46.2% | 63.2% |
+| **Global** | **76.7%** | **86.8%** |
 
-Force promotion bypasses all skip/tick rules when `anomaly_score > 0.90` or decision is Block/Escalate.
-
----
-
-## Decision Outputs
-
-| Decision | Score range | Meaning |
-|----------|-------------|---------|
-| Ignore | < 0.20 | Benign, no action |
-| Log | 0.20–0.40 | Low-confidence anomaly, record only |
-| Alert | 0.40–0.60 | Suspicious, notify SOC |
-| Block | 0.60–0.85 | High-confidence threat, block so
-**Partitioned memory** — each IP, user, host, session, and process has its own memory partition. IP A's attack history never contaminates IP B's retrieval context.
-
-**Configurable score fusion** — all weights (gate, fusion, retrieval, escalation) are exposed as structs. No hardcoded magic numbers in the hot path.
-
-**Correlation engine** — links events across time into campaigns. Detects repeat offenders, multi-stage attack sequences (port scan → brute force → lateral movement), distributed attacks (N sources → same host), and slow-burn APT patterns.
-
-**Adaptive baseline** — per-scope EMA baselines (global / host / user / IP) freeze during attacks and adapt during normal traffic. Thresholds self-tune to the observed traffic profile.
-
-**Fault tolerance** — every pipeline stage is wrapped in try/catch. NaN/Inf in SSM state triggers a reset, not a crash. Panic mode degrades gracefully to rule-only detection when fault rate spikes.
-
-**Sharded pipeline** — `ShardedIDS` runs N independent pipeline instances with consistent hash routing (same IP always hits the same shard). Supports Priority backpressure that drops low-anomaly events first under load.
-
-**Full observability** — per-stage latency (avg + p99), drift time series, routing log, fault log, campaign state, shard stats, and a live ncurses dashboard.
+Precision: 100% (zero false positives among attack events).
 
 ---
 
 ## File Structure
 
 ```
-include/
-  ids_types.hpp       — all shared structs, enums, config types
-  ids_level0.hpp      — LocalAnalyzer (L0), event validation
-  ids_level1.hpp      — SegmentSSM (L1), flush rules
-  ids_ssm.hpp         — L1SSM, HierarchicalSSM (L2s/L2m/L2l)
-  ids_memory.hpp      — partitioned MemoryStore, Retriever
-  ids_reasoning.hpp   — gate scoring, score fusion, ReasoningModel
-  ids_decision.hpp    — DecisionEngine, RepeatTracker, overrides
-  ids_correlation.hpp — CorrelationEngine, campaign tracking
-  ids_adaptive.hpp    — AdaptiveLayer, per-scope baselines
-  ids_telemetry.hpp   — metrics, latency, drift series, MetricsSink
-  ids_sharded.hpp     — ShardedIDS, BoundedQueue, watchdog
-  ids_model.hpp       — ModelHolder, parameter staging/apply
-  ids.hpp             — IDS facade (main entry point)
-
-ids_example.cpp       — integration demo (5-phase attack simulation)
-ids_visualizer.cpp    — live ncurses dashboard with pcap capture
-CMakeLists.txt        — build system
+decoderARC/
+├── include/                          # C++17 header-only IDS engine (24 headers)
+│   ├── ids.hpp                       # Main facade — 9-step pipeline
+│   ├── ids_types.hpp                 # All shared structs, enums, config types
+│   ├── ids_level0.hpp                # L0 LocalAnalyzer — 64-dim embedding
+│   ├── ids_level1.hpp                # L1 SegmentSSM — per-IP session SSM
+│   ├── ids_ssm.hpp                   # L2 hierarchical SSM (L2s/L2m/L2l)
+│   ├── ids_memory.hpp                # Partitioned MemoryStore + Retriever
+│   ├── ids_reasoning.hpp             # Attention-based reasoning gate
+│   ├── ids_decision.hpp              # Decision engine with 6-step override
+│   ├── ids_correlation.hpp           # Campaign tracking correlation engine
+│   ├── ids_adaptive.hpp              # Per-scope adaptive baselines
+│   ├── ids_telemetry.hpp             # Metrics, latency, drift series
+│   ├── ids_sharded.hpp               # ShardedIDS — N parallel pipelines
+│   ├── ids_model.hpp                 # ModelHolder, parameter staging
+│   ├── ids_capture.hpp               # libpcap packet capture bridge
+│   ├── ids_cloud.hpp                 # CloudUploader — HTTP client for backend
+│   ├── ids_ingest.hpp                # CSV dataset ingester + calibration
+│   ├── ids_nn.hpp                    # Neural network (autoencoder) component
+│   ├── ids_parallel.hpp              # Parallel processing utilities
+│   ├── ids_thread_pool.hpp           # Thread pool implementation
+│   ├── ids_fused_engine.hpp          # Fused engine combining subsystems
+│   ├── ids_specialist.hpp            # Specialist detection modules
+│   ├── ids_specialist_impl.hpp       # Specialist implementations
+│   ├── ids_specialist_ddos.hpp       # DDoS specialist detector
+│   └── ids_c_api.h                   # C API header for Python FFI bridge
+│
+├── tools/                            # Daemon and deployment tools
+│   ├── ids_production.cpp            # Main production daemon (668 lines)
+│   ├── ids_production.conf           # Default daemon config
+│   ├── ids.service                   # systemd service unit
+│   ├── ids_collector.cpp             # Real-time packet capture daemon
+│   ├── ids_c_api.cpp                 # C API implementation (Python bridge)
+│   ├── ids_xdp.c                     # eBPF/XDP kernel packet parser
+│   └── ids_xdp.o                     # Compiled BPF object
+│
+├── backend/                          # Python/FastAPI SaaS backend
+│   ├── Dockerfile                    # Python 3.12-slim image
+│   ├── requirements.txt              # FastAPI, SQLAlchemy, etc.
+│   ├── libids_central.so             # Compiled C++ IDS shared library
+│   ├── migrations/001_init.sql       # PostgreSQL schema migration
+│   ├── static/
+│   │   ├── index.html                # Full SPA frontend (1800+ lines)
+│   │   └── install.sh                # Sensor one-liner installer script
+│   └── app/
+│       ├── main.py                   # FastAPI entry point
+│       ├── config.py                 # Settings from env vars
+│       ├── database.py               # SQLAlchemy engine + session
+│       ├── models.py                 # ORM models (10 tables)
+│       ├── schemas.py                # Pydantic request/response schemas
+│       ├── auth.py                   # JWT + API key auth
+│       ├── broadcaster.py            # In-memory pub/sub for WebSocket/SSE
+│       ├── central_runtime.py        # Event processing runtime (4 workers)
+│       ├── ids_bridge.py             # ctypes bridge to libids_central.so
+│       ├── circuit_breaker.py        # Circuit breaker for fault tolerance
+│       ├── ratelimit.py              # Sliding window rate limiter
+│       ├── logging_config.py         # Structured logging setup
+│       └── routers/
+│           ├── auth.py               # /api/auth/* (register, login, profile)
+│           ├── devices.py            # /api/devices/* (CRUD, key mgmt)
+│           ├── alerts.py             # /api/alerts/* + /api/v1/ingest/*
+│           ├── dashboard.py          # /api/dashboard/* (overview, timeline)
+│           ├── logs.py               # /api/logs/* (query, export)
+│           ├── rules.py              # /api/rules/* (CRUD, import/export)
+│           ├── reports.py            # /api/reports/* (generate, schedule)
+│           └── stream.py             # /stream/alerts (SSE) + /ws/alerts (WS)
+│
+├── tests/                            # Automated tests with assertions
+│   ├── ids_unit_tests.cpp            # 21 unit tests (all pipeline stages)
+│   └── ids_e2e_test.cpp              # End-to-end detection evaluation
+│
+├── real_datasets/                    # 21 CICIDS2017 CSV datasets (2.8 GB)
+├── CMakeLists.txt                    # CMake build system
+├── Dockerfile                        # Sensor multi-stage build (Alpine)
+├── README.md                         # This file
+├── ARCHITECTURE.md                   # SaaS architecture documentation
+├── DETECTION_ANALYSIS.md             # Detection engine deep-dive
+└── PROJECT_ANALYSIS.md               # Full project analysis
 ```
 
 ---
 
 ## Build
 
-Requires: C++17, CMake ≥ 3.16, GCC ≥ 9 or Clang ≥ 10.
+Requires: C++17, CMake >= 3.16, GCC 9+ or Clang 10+.
 
 ```bash
+# Install optional dependencies
+# Ubuntu/Debian
+sudo apt install libpcap-dev libncurses-dev libcurl4-openssl-dev
+
+# RHEL/Fedora
+sudo dnf install libpcap-devel ncurses-devel libcurl-devel
+
+# Build everything
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-This builds `ids_demo` (the example). The live visualizer also builds if `libpcap` and `libncurses` are present:
+This builds:
+
+| Target | Description |
+|--------|-------------|
+| `ids_production` | Production daemon (requires libcurl for cloud upload) |
+| `ids_central` | Shared library for Python FFI bridge |
+| `ids_demo` | Integration demo (5-phase attack simulation) |
+| `ids_dataset_demo` | Dataset calibration and evaluation |
+| `ids_visualizer` | Live ncurses dashboard (requires libpcap + ncurses) |
+| `ids_unit_tests` | 21 unit tests across all pipeline stages |
+| `ids_e2e_test` | End-to-end detection evaluation on CICIDS2017 data |
+
+---
+
+## Run Tests
 
 ```bash
-# Ubuntu/Debian
-sudo apt install libpcap-dev libncurses-dev
+# Unit tests (L0, SSM, Memory, Reasoning, Decision, CSV parsing)
+./build/ids_unit_tests
 
-# RHEL/Fedora
-sudo dnf install libpcap-devel ncurses-devel
+# End-to-end detection evaluation (trains on benign, tests on attacks)
+./build/ids_e2e_test
 ```
 
 ---
 
 ## Quick Start
+
+### As a library
 
 ```cpp
 #include "ids.hpp"
@@ -165,8 +231,6 @@ ids::IDSConfig cfg;
 cfg.gate.gate_threshold        = 0.35f;
 cfg.thresholds.alert_threshold = 0.55f;
 cfg.thresholds.block_threshold = 0.80f;
-cfg.write_policy.memory_write_gate = 0.50f;
-cfg.policy.block_list = {"10.0.0.99"};
 
 ids::IDS pipeline(cfg);
 
@@ -176,385 +240,221 @@ pipeline.on_alert([](const ids::Alert& a) {
               << " src=" << a.source << "\n";
 });
 
-pipeline.on_block([](const std::string& src) {
-    std::cout << "BLOCK " << src << "\n";
-});
-
-pipeline.on_escalate([](const ids::Alert& a) {
-    std::cout << "ESCALATE campaign=" << a.trace.campaign_id << "\n";
-});
-
-// Add a rule
-pipeline.add_rule({1, "PortScan", "", 0.60f, ids::Decision::Alert});
-
-// Ingest events
 ids::Event ev;
 ev.source      = "192.168.1.100";
 ev.destination = "10.0.0.1";
 ev.type        = ids::EventType::NetworkPacket;
+ev.payload.port_src = 12345;
+ev.payload.port_dst = 80;
+ev.payload.protocol = 6;
+ev.payload.bytes_in = 1500;
 ev.payload.rate_hz = 5000.f;
 ev.payload.entropy = 0.9f;
 
 pipeline.ingest(ev);
 ```
 
----
-
-## Sharded (Production) Setup
-
-```cpp
-#include "ids_sharded.hpp"
-
-ids::IDSConfig cfg;
-cfg.sharding.hash_key             = "ip";
-cfg.queue.queue_depth             = 4096;
-cfg.backpressure.policy           = ids::BackpressurePolicy::Priority;
-cfg.watchdog.heartbeat_interval_s = 1.0f;
-cfg.watchdog.auto_restart         = true;
-
-ids::ShardedIDS ids_sys(cfg, 8);   // 8 independent pipeline shards
-ids_sys.on_alert([](const ids::Alert& a){ /* ... */ });
-ids_sys.start();
-
-ids_sys.ingest(event);   // lock-free hash-route + enqueue
-ids_sys.shutdown();
-```
-
----
-
-## Live Dashboard
+### As a daemon
 
 ```bash
-# capture all IP traffic on eth0
-sudo ./build/ids_visualizer eth0
+# Live capture on eth0
+sudo ./build/ids_production eth0
 
-# TCP only
-sudo ./build/ids_visualizer eth0 "tcp port 80 or tcp port 443"
+# Replay a CSV dataset
+./build/ids_production --replay real_datasets/portscan.csv
+
+# Train on benign traffic
+./build/ids_production --train real_datasets/monday_benign.csv --train-only
+
+# With cloud backend
+./build/ids_production eth0 --config /etc/ids/config.conf
 ```
 
-Press `q` to quit. See `VISUALIZER_SETUP.md` for full setup and BPF filter examples.
+### Docker
 
----
+```bash
+# Build sensor image
+docker build -t coreids-sensor .
 
-## Configuration Reference
+# Run
+docker run --rm --net=host --cap-add=NET_RAW coreids-sensor eth0
 
-All config lives in `IDSConfig`. Key sub-structs:
-
-| Struct | Controls |
-|--------|----------|
-| `gate` (`ReasoningGateConfig`) | Multi-signal gate threshold and weights |
-| `thresholds` (`DecisionThresholds`) | Ignore / Log / Alert / Block score boundaries |
-| `write_policy` (`WritePolicy`) | When to write events to memory |
-| `routing` (`RoutingConfig`) | Flush, promotion, skip, force, split rules |
-| `escalation` (`EscalationConfig`) | Escalation conditions and repeat window |
-| `correlation` (`CorrelationConfig`) | Correlation weights and campaign timeouts |
-| `panic` (`PanicConfig`) | Fault threshold and degraded-mode behavior |
-| `telemetry` (`TelemetryConfig`) | Log level, drift series, routing debug |
-| `sharding` (`ShardingConfig`) | Number of shards and hash key |
-
-Hot-reload thresholds and weights at runtime without restarting:
-
-```cpp
-auto new_cfg = std::make_shared<ids::IDSConfig>(cfg);
-new_cfg->thresholds.alert_threshold = 0.60f;
-pipeline.hot_reload_config(new_cfg);
-
-// Roll back if needed
-pipeline.rollback_config(1);
+# Build backend image
+docker build -t coreids-backend backend/
+docker run -p 8000:8000 coreids-backend
 ```
 
----
+### Backend
 
-## Latency Budget (single shard, p99)
+```bash
+cd backend
+pip install -r requirements.txt
 
-| Stage | Target |
-|-------|--------|
-| L0 local analyzer | < 5 µs |
-| L1 segment SSM | < 10 µs |
-| L2 hierarchy | < 10 µs |
-| Memory write | < 5 µs |
-| Retrieval | < 50 µs |
-| Reasoning (~20% of events) | < 200 µs |
-| Decision | < 5 µs |
-| Total (no reasoning) | < 85 µs |
-| Total (with reasoning) | < 285 µs |
+# With PostgreSQL
+DATABASE_URL=postgresql://user:pass@localhost:5432/coreids \
+JWT_SECRET=your-secret-key \
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 
----
-
-## What You Can Do With This
-
-- Embed it in a network appliance or host agent to detect intrusions in real time
-- Use it as the detection core of a SIEM or XDR platform
-- Run it in learning mode for an hour to auto-calibrate thresholds to your traffic
-- Feed it custom rules and attack signatures for your environment
-- Use the correlation engine to track multi-stage campaigns across your network
-- Export `DecisionTrace` from every alert into your SIEM for full audit trails
-- Scale horizontally with `ShardedIDS` across multiple CPU cores
-- Hot-reload thresholds and rules without downtime
-
----
-
-## v1 → v2 Migration
-
-See `IDS_v2_Upgrade_Documentation.md` for the full migration guide. The short version:
-
-```cpp
-// v1
-cfg.reasoning_gate    = 0.35f;
-cfg.memory_write_gate = 0.50f;
-
-// v2
-cfg.gate.gate_threshold            = 0.35f;
-cfg.write_policy.memory_write_gate = 0.50f;
-```
-
-All callbacks (`on_alert`, `on_block`, `on_escalate`) and the `ingest()` API are unchanged.
-
-
----
-
-## Live Packet Capture (ids_capture.hpp)
-
-`ids_capture.hpp` provides a `PacketCapture` class that bridges raw libpcap packets directly into the IDS pipeline. It handles Ethernet → IPv4 → TCP/UDP parsing, Shannon entropy calculation from payload bytes, and runs the capture loop on a background thread.
-
-```cpp
-#include "ids_capture.hpp"
-
-ids::IDS pipeline(cfg);
-
-ids::PacketCapture cap("eth0", "ip");   // interface + BPF filter
-cap.on_event([&](const ids::Event& ev) {
-    pipeline.ingest(ev);
-});
-
-if (!cap.start()) {
-    std::cerr << "Capture failed\n";
-    return 1;
-}
-
-// ... run until done ...
-cap.stop();
-
-auto snap = cap.stats().snapshot();
-std::cout << "captured=" << snap.packets_captured
-          << " dropped=" << snap.packets_dropped << "\n";
-```
-
-List available interfaces:
-
-```cpp
-auto ifaces = ids::PacketCapture::list_interfaces();
-for (const auto& i : ifaces) std::cout << i << "\n";
-```
-
-The `packet_to_event()` function is also available standalone if you already have a pcap handle and want to convert packets yourself.
-
----
-
-## Telemetry & Observability
-
-Every pipeline instance exposes a full telemetry surface.
-
-**Metrics snapshot:**
-
-```cpp
-const auto& m = pipeline.metrics();
-m.events_total.load()
-m.alerts_total.load()
-m.blocks_total.load()
-m.escalations_total.load()
-m.reasoning_calls.load()
-m.forced_reasoning.load()
-m.memory_writes.load()
-m.faults_total.load()
-```
-
-**Per-stage latency (avg + p99):**
-
-```cpp
-auto lat = pipeline.latency_stats();
-lat.l0_avg_us           // LocalAnalyzer
-lat.l1_avg_us           // SegmentSSM
-lat.retrieval_avg_us    // memory retrieval
-lat.reasoning_avg_us    // attention + fusion
-lat.total_avg_us        // end-to-end
-lat.total_p99_us        // p99 end-to-end
-```
-
-**Health and fault log:**
-
-```cpp
-const auto& h = pipeline.health();
-h.numeric_faults.load()   // NaN/Inf in SSM state
-h.reasoning_fails.load()  // reasoning exceptions
-h.panic_mode              // currently degraded?
-
-auto faults = pipeline.fault_log_entries(10);  // last 10 faults
-```
-
-**Drift time series** (records drift_score + anomaly_history over time):
-
-```cpp
-// enabled via cfg.telemetry.drift_series = true
-// access via TelemetryExporter::export_drift_series()
-```
-
-**Push metrics to an external sink** (e.g. Prometheus, StatsD):
-
-```cpp
-// Access the exporter via the pipeline internals or wire your own sink
-// using TelemetryExporter::set_sink():
-exporter.set_sink([](const ids::Metrics& m) {
-    push_to_prometheus(m.events_total.load(), m.alerts_total.load());
-}, 1.0f);  // push every 1 second
-```
-
-**Routing debug log** (traces every flush/promote/skip decision):
-
-```cpp
-cfg.telemetry.routing_debug = true;
-// ...
-auto log = pipeline.routing_log(50);  // last 50 routing events
-for (const auto& e : log)
-    std::cout << e.reason << " from=" << e.from_level
-              << " to=" << e.to_level << "\n";
+# Or with SQLite (auto-fallback)
+JWT_SECRET=your-secret-key uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ---
 
-## DecisionTrace — Full Audit Trail
+## Daemon Configuration
 
-Every `Alert` carries a `DecisionTrace` with the complete signal breakdown for SOC review or SIEM ingestion:
+`tools/ids_production.conf`:
 
-```cpp
-pipeline.on_alert([](const ids::Alert& a) {
-    const auto& t = a.trace;
-    // Raw signals
-    t.local_score              // L0 anomaly score
-    t.segment_trend            // L1 segment trend
-    t.anomaly_history          // L2 EMA
-    t.drift_score              // baseline drift
-    t.retrieval_similarity_max // top retrieved record similarity
-    t.rule_matched             // any rule fired?
-    // Gate
-    t.gate_score               // weighted multi-signal gate result
-    t.forced                   // was reasoning forced?
-    t.skipped                  // was reasoning skipped?
-    // Scores
-    t.fused_score              // score fusion output
-    t.corr_score               // correlation engine contribution
-    t.final_score              // combined final
-    // Decisions
-    t.base_decision            // before overrides
-    t.final_decision           // after all overrides
-    // Classification
-    t.attack_class
-    t.correlation_type         // "repeat" | "multi_stage" | "distributed" | "slow_attack"
-    t.campaign_id              // links all alerts from the same campaign
-});
+```ini
+state_dir         = /var/lib/ids
+alert_threshold   = 0.70
+block_threshold   = 0.92
+shards            = 0           # 0 = single pipeline
+verbose           = true
+prometheus        = true
+prometheus_port   = 9102
+cloud_url         = http://your-server.com:8000
+device_id         = <paste-device-id-here>
+api_key           = <paste-api-key-here>
+forwarder_only    = true        # only forward events, no edge detection
 ```
 
 ---
 
-## Threshold Calibration
+## Backend API
 
-Use `BaselineCalibrator` to observe normal traffic and get suggested thresholds before going live:
+### User-facing (JWT auth)
 
-```cpp
-ids::BaselineCalibrator cal;
+| Router | Prefix | Key Endpoints |
+|--------|--------|---------------|
+| auth | `/api/auth` | register, login, logout, me, plans, subscription |
+| devices | `/api/devices` | CRUD, regenerate key, test connection |
+| alerts | `/api/alerts` | list, filter, paginate, categories |
+| dashboard | `/api/dashboard` | overview, top-talkers, alert-timeline |
+| logs | `/api/logs` | list, stats, export CSV |
+| rules | `/api/rules` | CRUD, toggle, import/export JSON |
+| reports | `/api/reports` | templates, generate, schedule, download |
+| stream | `/stream/*`, `/ws/*` | SSE and WebSocket real-time alerts |
 
-// Learning phase — feed normal traffic
-for (const auto& ev : normal_traffic) {
-    auto state = pipeline.ingest(ev);
-    cal.observe(state.local, state.segment);
-}
+### Daemon-facing (API key auth via Authorization header)
 
-// Get suggestions targeting 1% false-positive rate
-auto s = cal.compute(0.01f);
-cfg.gate.gate_threshold        = s.gate_threshold;
-cfg.thresholds.alert_threshold = s.alert_threshold;
-cfg.thresholds.block_threshold = s.block_threshold;
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/v1/ingest/alerts` | Batch alert push (every 5s) |
+| `POST /api/v1/ingest/events` | Raw traffic event push |
+| `POST /api/v1/ingest/logs` | Log entry push |
+| `POST /api/v1/ingest/metrics` | Performance metrics push |
+| `POST /api/v1/device/heartbeat` | Device keepalive (every 30s) |
+| `GET /api/v1/device/config` | Pull device configuration |
+
+---
+
+## Frontend
+
+Plain HTML/JS SPA (no build step, no framework). Dark theme with CSS variables.
+
+### Pages
+
+| Page | Features |
+|------|----------|
+| Overview | 5 stat cards, alert timeline sparkline, categories chart, recent alerts, top talkers |
+| Alerts | Paginated table with severity filter and IP search |
+| Logs | Log viewer with type/protocol/severity filters, CSV export |
+| Traffic | Traffic volume, inbound/outbound breakdown |
+| Analytics | Event stats, alert rate, benign %, avg latency |
+| Devices | Device grid with status, create, test, reinstall, delete |
+| Sources | Top source IPs with alert count and threat score |
+| Rules | CRUD, toggle enable/disable, import/export JSON |
+| Reports | Templates, recent reports, generate, download |
+| Settings | Profile, subscription plan, API key management |
+
+### Real-time
+
+- **WebSocket** (`/ws/alerts`): Instant alert push from backend
+- **Polling** (15s): Overview stats, devices, traffic, active page data
+- **Live indicator**: Green pulsing dot when devices are online, red when offline
+
+---
+
+## Data Flow
+
 ```
-
-Or use learning mode to do this automatically during initial deployment:
-
-```cpp
-cfg.learning.enabled          = true;
-cfg.learning.disable_blocking = true;   // no Block/Escalate during learning
-cfg.learning.duration_s       = 3600.f; // observe for 1 hour
+1. Daemon captures packet via AF_PACKET raw socket
+2. Parses Ethernet → IPv4/IPv6 → TCP/UDP headers
+3. Constructs Event with IPs, ports, protocol, entropy, rate
+4. IDS pipeline detects threat → generates Alert
+5. CloudUploader batches alerts every 5s
+6. POST /api/v1/ingest/alerts (Authorization: Bearer <api_key>)
+7. Backend extracts API key from header, verifies device
+8. Stores Alert + LogEntry in PostgreSQL
+9. Broadcasts to WebSocket subscribers via in-memory pub/sub
+10. Frontend receives via WebSocket, updates dashboard instantly
 ```
 
 ---
 
-## State Persistence
+## Database (10 Tables)
 
-Save and restore pipeline state across restarts:
-
-```cpp
-// Save
-pipeline.save_all("/var/ids/state");
-// Writes: ids_state.bin, ids_memory.json, ids_config.json
-
-// Restore (missing files start clean — non-fatal)
-pipeline.load_state("/var/ids/state/ids_state.bin");
-```
-
-For `ShardedIDS`:
-
-```cpp
-ids_sys.flush_pending();              // flush in-flight L1 segments first
-ids_sys.save_all("/var/ids/state");   // shard_0_state.bin, shard_1_state.bin, ...
-ids_sys.load_all("/var/ids/state");   // on next startup
-```
-
----
-
-## Model Updates
-
-Stage and apply new SSM parameters without downtime:
-
-```cpp
-// Stage (validates, does not affect running pipeline)
-pipeline.stage_model("/models/ids_v3.bin");
-
-// Apply atomically (resets all SSM state, installs new params)
-pipeline.apply_model();
-
-// Roll back if the new model behaves badly
-pipeline.rollback_model(1);
-```
-
----
-
-## Attack Classification Labels
-
-The reasoning model produces these attack class strings in `Alert.attack_class` and `DecisionTrace.attack_class`:
-
-| Label | Trigger |
+| Table | Purpose |
 |-------|---------|
-| `DoS/DDoS` | High burst metric + high rate |
-| `EncryptedC2/Exfiltration` | High entropy + high error frequency |
-| `BruteForce/CredentialStuffing` | Auth-dominant segment + high anomaly trend |
-| `FileSystemAnomaly/Ransomware` | File-dominant segment + high local score |
-| `LateralMovement/Persistence` | Process-dominant segment + high drift |
-| `RuleMatch:<name>` | Matched a named rule |
-| `UnknownHighSeverity` | Score above block threshold, no class match |
-| `UnknownLowSeverity` | Score above alert threshold, no class match |
-| `none` | Score below classification floor |
+| `users` | User accounts (UUID PK, email, password_hash, role) |
+| `subscriptions` | Plans (free/pro/enterprise), Stripe integration |
+| `devices` | Sensor deployments (api_key_hash, status, config_json) |
+| `alerts` | Security alerts (decision, severity, confidence, attack_class) |
+| `metrics` | Time-series device health (EPS, latency, drift_score) |
+| `logs` | Log entries (type, protocol, src/dst IP, severity) |
+| `traffic_events` | Raw traffic events (processed flag for worker claiming) |
+| `rules` | Detection rules (SID, category, severity, condition) |
+| `reports` | Generated reports (template, format, file_path) |
+| `report_schedules` | Scheduled report configs (cron, recipients) |
+| `usage_meters` | Monthly usage tracking |
 
-Multi-stage correlation adds campaign-level labels like `LateralMovement` and `APT-Exfiltration` via the `CorrelationEngine`.
+---
+
+## Subscription Tiers
+
+| Feature | Free | Pro ($49/mo) | Enterprise ($199/mo) |
+|---------|------|-------------|---------------------|
+| Sensors | 1 | 5 | Unlimited |
+| Retention | 7 days | 30 days | 1 year |
+| Events/month | 1M | 10M | Unlimited |
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgresql://...localhost:5432/coreids` | PostgreSQL connection |
+| `JWT_SECRET` | `""` | Secret for JWT signing |
+| `JWT_ALGORITHM` | `HS256` | JWT algorithm |
+| `JWT_EXPIRE_MINUTES` | `1440` | Token expiry (24h) |
+| `STRIPE_SECRET_KEY` | `""` | Stripe API key |
+| `CORS_ORIGINS` | `""` | Comma-separated CORS origins |
+| `COOKIE_SECURE` | `false` | Set true for HTTPS |
 
 ---
 
 ## Requirements
 
-| Requirement | Minimum |
-|-------------|---------|
+| Component | Minimum |
+|-----------|---------|
 | C++ standard | C++17 |
 | CMake | 3.16 |
 | Compiler | GCC 9+ or Clang 10+ |
 | Threads | pthreads (Linux) |
+| Cloud upload | libcurl |
 | Visualizer | libpcap + libncurses |
-| Capture bridge | libpcap |
+| Backend | Python 3.12, FastAPI |
+| Database | PostgreSQL (SQLite fallback) |
 
-Header-only — no separate compilation step for the core library. Just `#include "ids.hpp"` and link with `-lpthread`.
+---
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs 4 jobs:
+
+1. **cpp-build**: CMake build + unit tests + e2e tests
+2. **python-lint**: ruff check on backend code
+3. **python-test**: pytest with PostgreSQL service container
+4. **docker**: Build backend and sensor Docker images

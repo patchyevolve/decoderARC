@@ -58,11 +58,17 @@ inline Decision apply_overrides(Decision ml_decision,
         if (ev.source.find(b) != std::string::npos) return Decision::Block;
 
     Decision d = ml_decision;
-    // 3–5. Escalation checks
-    if (d == Decision::Alert || d == Decision::Block) {
-        if (gs.anomaly_history >= esc_cfg.escalate_hist)   d = Decision::Escalate;
-        if (gs.drift_score     >= esc_cfg.escalate_drift)  d = Decision::Escalate;
-        if (tracker.should_escalate(ev.source, esc_cfg))   d = Decision::Escalate;
+    // 3–5. Escalation checks — require non-Ignore AND confidence above block threshold
+    if (d != Decision::Ignore && d != Decision::Log) {
+        float base_conf = 0.f;
+        if (gs.anomaly_history >= esc_cfg.escalate_hist &&
+            gs.anomaly_history >= esc_cfg.escalate_hist * 0.9f) {
+            if (tracker.should_escalate(ev.source, esc_cfg) ||
+                gs.drift_score >= esc_cfg.escalate_drift * 0.5f)
+                d = Decision::Escalate;
+        }
+        if (gs.drift_score >= esc_cfg.escalate_drift) d = Decision::Escalate;
+        if (tracker.should_escalate(ev.source, esc_cfg)) d = Decision::Escalate;
     }
     return d;
 }
@@ -84,6 +90,18 @@ public:
     void on_alert   (AlertCallback    cb) { on_alert_    = std::move(cb); }
     void on_block   (BlockCallback    cb) { on_block_    = std::move(cb); }
     void on_escalate(EscalateCallback cb) { on_escalate_ = std::move(cb); }
+
+    void reconfig(DecisionPolicy      policy,
+                  EscalationConfig    esc_cfg,
+                  HysteresisConfig    hyst_cfg,
+                  CooldownConfig      cool_cfg,
+                  LearningModeConfig  learn_cfg) {
+        policy_   = std::move(policy);
+        esc_cfg_  = esc_cfg;
+        hyst_cfg_ = hyst_cfg;
+        cool_cfg_ = cool_cfg;
+        learn_cfg_ = learn_cfg;
+    }
 
     void execute(ReasoningResult& res,  // non-const — we write trace.final_decision
                  const Event& ev,
@@ -113,6 +131,8 @@ public:
 
             Alert alert{ final_d, res.confidence, res.attack_class,
                          res.explanation, ev.source, ev.destination,
+                         ev.payload.port_src, ev.payload.port_dst,
+                         std::to_string(ev.payload.protocol),
                          ev.type, ev.time, res.trace };
 
             tracker_.record(ev.source);
@@ -141,7 +161,10 @@ public:
         } catch (...) {
             // § 5 fault — emit safe fallback log
             Alert fallback{ Decision::Log, 0.f, "fault", "[decision fault]",
-                            ev.source, ev.destination, ev.type, ev.time, {} };
+                            ev.source, ev.destination,
+                            ev.payload.port_src, ev.payload.port_dst,
+                            std::to_string(ev.payload.protocol),
+                            ev.type, ev.time, {} };
             if (on_alert_) on_alert_(fallback);
         }
     }

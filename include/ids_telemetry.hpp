@@ -1,5 +1,6 @@
 #pragma once
 #include "ids_types.hpp"
+#include <array>
 #include <deque>
 #include <mutex>
 #include <atomic>
@@ -9,24 +10,48 @@
 
 namespace ids {
 
-// ─── EMA latency tracker ──────────────────────────────────────
+// ─── EMA latency tracker with histogram-based p99 ────────────
 class EMATracker {
 public:
     explicit EMATracker(float alpha = 0.01f) : alpha_(alpha) {}
 
     void record(float val_us) {
         avg_us_ += alpha_ * (val_us - avg_us_);
-        if (val_us > p99_us_) p99_us_ = val_us;   // simplified max-tracked p99
+        size_t idx = std::min(static_cast<size_t>(val_us / kBucketWidth),
+                              kNumBuckets - 1);
+        histogram_[idx]++;
+        total_samples_++;
+        if (val_us > peak_us_) peak_us_ = val_us;
     }
 
     float avg_us() const { return avg_us_; }
-    float p99_us() const { return p99_us_; }
-    void  reset()        { avg_us_ = 0.f; p99_us_ = 0.f; }
+    float p99_us() const {
+        if (total_samples_ == 0) return 0.f;
+        size_t threshold = static_cast<size_t>(
+            static_cast<float>(total_samples_) * 0.99f);
+        size_t cumulative = 0;
+        for (size_t i = kNumBuckets; i > 0; --i) {
+            cumulative += histogram_[i - 1];
+            if (cumulative >= threshold)
+                return static_cast<float>(i) * kBucketWidth;
+        }
+        return peak_us_;
+    }
+    float peak_us() const { return peak_us_; }
+    void  reset() {
+        avg_us_ = 0.f; peak_us_ = 0.f;
+        for (auto& h : histogram_) h = 0;
+        total_samples_ = 0;
+    }
 
 private:
+    static constexpr size_t kNumBuckets  = 256;
+    static constexpr float  kBucketWidth = 100.f;  // 0–25.5ms range
     float alpha_;
-    float avg_us_ = 0.f;
-    float p99_us_ = 0.f;
+    float avg_us_   = 0.f;
+    float peak_us_  = 0.f;
+    std::array<size_t, kNumBuckets> histogram_{};
+    size_t total_samples_ = 0;
 };
 
 // ─── Fault log ────────────────────────────────────────────────
@@ -131,6 +156,7 @@ struct RoutingDebugLog {
 // ─── Stage latency tracker ────────────────────────────────────
 struct StageLatencyTracker {
     EMATracker l0, l1, l2, mem_write, retrieval, reasoning, correlation, decision, total;
+    EMATracker ae, specialist, near_miss, online;
 
     StageLatency snapshot() const {
         StageLatency s;
@@ -143,9 +169,15 @@ struct StageLatencyTracker {
         s.correlation_avg_us  = correlation.avg_us();
         s.decision_avg_us     = decision.avg_us();
         s.total_avg_us        = total.avg_us();
+        s.ae_avg_us           = ae.avg_us();
+        s.specialist_avg_us   = specialist.avg_us();
+        s.near_miss_avg_us    = near_miss.avg_us();
+        s.online_avg_us       = online.avg_us();
         s.l0_p99_us           = l0.p99_us();
         s.retrieval_p99_us    = retrieval.p99_us();
         s.reasoning_p99_us    = reasoning.p99_us();
+        s.ae_p99_us           = ae.p99_us();
+        s.online_p99_us       = online.p99_us();
         s.total_p99_us        = total.p99_us();
         return s;
     }
@@ -183,11 +215,10 @@ struct ReplayResult {
 class TelemetryExporter {
 public:
     TelemetryExporter(const Metrics&             metrics,
-                      const HealthStats&          health,
                       const DriftTimeSeries&      drift,
                       const FaultLog&             faults,
                       const StageLatencyTracker&  latency)
-        : metrics_(metrics), health_(health),
+        : metrics_(metrics),
           drift_(drift), faults_(faults), latency_(latency) {}
 
     void export_metrics(std::ostream& out) const {
@@ -212,9 +243,13 @@ public:
     using MetricsSink = std::function<void(const Metrics&)>;
 
     void set_sink(MetricsSink sink, float interval_s = 1.0f) {
+        if (sink_thread_running_.load()) {
+            sink_thread_running_ = false;
+            if (sink_thread_.joinable()) sink_thread_.join();
+        }
         sink_          = std::move(sink);
         sink_interval_ = interval_s;
-        if (sink_ && !sink_thread_running_.load()) {
+        if (sink_) {
             sink_thread_running_ = true;
             sink_thread_ = std::thread([this]() {
                 while (sink_thread_running_.load()) {
@@ -236,7 +271,6 @@ public:
 
 private:
     const Metrics&            metrics_;
-    const HealthStats&        health_;
     const DriftTimeSeries&    drift_;
     const FaultLog&           faults_;
     const StageLatencyTracker&latency_;
