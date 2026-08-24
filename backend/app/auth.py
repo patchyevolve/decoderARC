@@ -3,7 +3,6 @@
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -22,7 +21,7 @@ _ITERATIONS = 600_000
 _SALT_LEN = 32
 
 
-def _hash_password(password: str, salt: Optional[bytes] = None) -> tuple[str, str]:
+def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
     """Returns (hash_hex, salt_hex)."""
     if salt is None:
         salt = secrets.token_bytes(_SALT_LEN)
@@ -69,7 +68,7 @@ def create_jwt(user_id: str, email: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def decode_jwt(token: str) -> Optional[dict]:
+def decode_jwt(token: str) -> dict | None:
     try:
         return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError:
@@ -79,7 +78,7 @@ def decode_jwt(token: str) -> Optional[dict]:
 # ─── Dependency: get current user from JWT ────────────────────
 def get_current_user(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     # Try HttpOnly cookie first

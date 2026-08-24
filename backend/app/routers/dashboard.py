@@ -4,7 +4,6 @@ These directly map to the stat cards and charts in your wireframe.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
@@ -19,7 +18,7 @@ from ..models import User, Alert, Device, Metric, TrafficEvent
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
-def _time_range(from_str: Optional[str], to_str: Optional[str],
+def _time_range(from_str: str | None, to_str: str | None,
                 default_minutes: int = 15):
     now = datetime.now(timezone.utc)
     if to_str:
@@ -49,9 +48,9 @@ def _previous_period(from_dt: datetime, to_dt: datetime):
 
 @router.get("/overview")
 def overview_stats(
-    time_from: Optional[str] = None,
-    time_to: Optional[str] = None,
-    device_id: Optional[str] = None,
+    time_from: str | None = None,
+    time_to: str | None = None,
+    device_id: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -184,10 +183,10 @@ def overview_stats(
 
 @router.get("/top-talkers")
 def top_talkers(
-    time_from: Optional[str] = None,
-    time_to: Optional[str] = None,
+    time_from: str | None = None,
+    time_to: str | None = None,
     limit: int = Query(10, ge=1, le=50),
-    device_id: Optional[str] = None,
+    device_id: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -210,10 +209,10 @@ def top_talkers(
 
 @router.get("/alert-timeline")
 def alert_timeline(
-    time_from: Optional[str] = None,
-    time_to: Optional[str] = None,
+    time_from: str | None = None,
+    time_to: str | None = None,
     interval: str = "1 minute",
-    device_id: Optional[str] = None,
+    device_id: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

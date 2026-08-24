@@ -3,7 +3,6 @@ import logging
 import threading
 import time
 from collections import defaultdict, deque
-from typing import Dict, Deque, List, Optional
 
 from .broadcaster import broadcaster
 from .database import SessionLocal
@@ -38,7 +37,7 @@ class UserRuntime:
         self.user_id = user_id
         self.loop = loop
         self.lock = threading.Lock()
-        self.queue: Deque[TrafficEvent] = deque(maxlen=MAX_USER_QUEUE)
+        self.queue: deque[TrafficEvent] = deque(maxlen=MAX_USER_QUEUE)
 
     def ingest(self, event: TrafficEvent):
         with self.lock:
@@ -46,7 +45,7 @@ class UserRuntime:
                 self.queue.popleft()  # drop oldest
             self.queue.append(event)
 
-    def process_batch(self, db, event_ids_for_mark: Optional[List[str]] = None):
+    def process_batch(self, db, event_ids_for_mark: list[str] | None = None):
         batch = []
         with self.lock:
             while self.queue:
@@ -56,11 +55,11 @@ class UserRuntime:
             return
 
         alerts = []
-        c_alerts: List[dict] = []
+        c_alerts: list[dict] = []
         logs = []
 
         # Batch C bridge call: group all events and call once per user
-        batch_alerts_by_event: Dict[str, dict] = {}
+        batch_alerts_by_event: dict[str, dict] = {}
         if _c_runtime_available and batch:
             try:
                 c_runtime = _get_c_runtime()
@@ -199,13 +198,13 @@ class UserRuntime:
 
 class UserRuntimeManager:
     def __init__(self, num_workers: int = 4):
-        self.runtimes: Dict[str, UserRuntime] = {}
+        self.runtimes: dict[str, UserRuntime] = {}
         self.lock = threading.Lock()
         self._running = False
-        self._worker_threads: List[threading.Thread] = []
+        self._worker_threads: list[threading.Thread] = []
         self._num_workers = max(1, num_workers)
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._loop_thread: Optional[threading.Thread] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
 
     def get_runtime(self, user_id: str) -> UserRuntime:
         if self._loop is None:
@@ -216,7 +215,7 @@ class UserRuntimeManager:
                 self.runtimes[user_id] = UserRuntime(user_id, loop)
             return self.runtimes[user_id]
 
-    def ingest_events(self, events: List[TrafficEvent]):
+    def ingest_events(self, events: list[TrafficEvent]):
         user_events = defaultdict(list)
         for ev in events:
             user_events[ev.user_id].append(ev)

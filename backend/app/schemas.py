@@ -1,7 +1,6 @@
 """Pydantic schemas for request/response validation."""
 
 from datetime import datetime
-from typing import Optional
 from pydantic import BaseModel, EmailStr
 
 
@@ -43,7 +42,7 @@ class SubscriptionInfo(BaseModel):
     sensors_allowed: int
     retention_days: int
     events_per_month_limit: int
-    current_period_end: Optional[datetime] = None
+    current_period_end: datetime | None = None
 
 
 class PlanInfo(BaseModel):
@@ -66,23 +65,23 @@ class DeviceResponse(BaseModel):
     name: str
     api_key: str  # only shown once on creation
     status: str
-    last_seen_at: Optional[datetime] = None
+    last_seen_at: datetime | None = None
     version: str
     location: str
     created_at: datetime
 
 
 class DeviceUpdate(BaseModel):
-    name: Optional[str] = None
-    location: Optional[str] = None
-    config_json: Optional[dict] = None
+    name: str | None = None
+    location: str | None = None
+    config_json: dict | None = None
 
 
 class DeviceListItem(BaseModel):
     id: str
     name: str
     status: str
-    last_seen_at: Optional[datetime] = None
+    last_seen_at: datetime | None = None
     version: str
     ip: str
 
@@ -106,7 +105,7 @@ class AlertResponse(BaseModel):
     anomaly_score: float
     ae_score: float
     explanation: str
-    acknowledged_at: Optional[datetime] = None
+    acknowledged_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -249,14 +248,14 @@ class LogEntryResponse(BaseModel):
     id: str
     time: datetime
     type: str
-    protocol: Optional[str] = ""
-    src_ip: Optional[str] = ""
+    protocol: str | None = ""
+    src_ip: str | None = ""
     src_port: int = 0
-    dst_ip: Optional[str] = ""
+    dst_ip: str | None = ""
     dst_port: int = 0
-    severity: Optional[str] = "info"
-    message: Optional[str] = ""
-    device: Optional[str] = ""
+    severity: str | None = "info"
+    message: str | None = ""
+    device: str | None = ""
 
     class Config:
         from_attributes = True
@@ -289,7 +288,7 @@ class RuleResponse(BaseModel):
     action: str
     enabled: bool
     triggers: int
-    last_hit: Optional[str] = ""
+    last_hit: str | None = ""
 
     class Config:
         from_attributes = True

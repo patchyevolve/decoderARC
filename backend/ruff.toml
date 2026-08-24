@@ -1,0 +1,9 @@
+[lint]
+ignore = [
+    "B008",   # FastAPI Depends() in function signatures — standard pattern
+    "S110",   # try-except-pass in async broadcast — intentional swallow
+    "BLE001", # blind Exception catch — used for resilient async + FFI
+    "I001",   # import sorting — cosmetic, not worth enforcing
+    "RUF012", # mutable class attribute default — Pydantic Settings pattern
+    "SIM115", # context manager for file open — streaming responses handle this
+]

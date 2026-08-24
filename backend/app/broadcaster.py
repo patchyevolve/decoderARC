@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-from typing import Dict, List
 
 logger = logging.getLogger("coreids.broadcaster")
 
@@ -10,7 +9,7 @@ MAX_QUEUE_SIZE = 1000
 
 class AlertBroadcaster:
     def __init__(self):
-        self._subscribers: Dict[str, List[asyncio.Queue]] = {}
+        self._subscribers: dict[str, list[asyncio.Queue]] = {}
 
     def subscribe(self, user_id: str, q: asyncio.Queue):
         if user_id not in self._subscribers:

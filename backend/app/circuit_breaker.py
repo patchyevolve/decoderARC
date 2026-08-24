@@ -1,7 +1,7 @@
 import time
 import logging
 from enum import Enum
-from typing import Callable
+from collections.abc import Callable
 
 logger = logging.getLogger("coreids.circuit_breaker")
 

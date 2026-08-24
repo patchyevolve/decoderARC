@@ -3,7 +3,6 @@
 import asyncio
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
@@ -340,12 +339,12 @@ def device_config(device_id: str = Query(...), api_key: str = Query(...),
 def list_alerts(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    device_id: Optional[str] = None,
-    severity: Optional[str] = None,
-    attack_class: Optional[str] = None,
-    source_ip: Optional[str] = None,
-    time_from: Optional[str] = None,
-    time_to: Optional[str] = None,
+    device_id: str | None = None,
+    severity: str | None = None,
+    attack_class: str | None = None,
+    source_ip: str | None = None,
+    time_from: str | None = None,
+    time_to: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -382,9 +381,9 @@ def list_alerts(
 # ─── User-facing: alert categories (donut chart) ──────────────
 @router.get("/api/alerts/categories", response_model=dict)
 def alert_categories(
-    time_from: Optional[str] = None,
-    time_to: Optional[str] = None,
-    device_id: Optional[str] = None,
+    time_from: str | None = None,
+    time_to: str | None = None,
+    device_id: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
