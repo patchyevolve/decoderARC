@@ -4,6 +4,7 @@
 #include "ids_ingest.hpp"
 #include <cassert>
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <numeric>
 
@@ -323,17 +324,22 @@ void test_near_miss_detector() {
 //  Test: Dataset ingestion end-to-end (small)
 // ═══════════════════════════════════════════════════════════════
 void test_dataset_ingestion() {
+    // Skip if real_datasets/ is not present (CI doesn't ship 2.8GB CSVs)
+    if (!std::ifstream("real_datasets/portscan.csv").good()) {
+        std::cout << "  DatasetIngester parses FlowCSV correctly... SKIP (no datasets)\n";
+        std::cout << "  DatasetIngester computes TP/FP/FN/TN... SKIP (no datasets)\n";
+        return;
+    }
+
     TEST("DatasetIngester parses FlowCSV correctly") {
         ids::IDSConfig cfg;
         ids::IDS pipeline(cfg);
         ids::DatasetIngester ingester(pipeline, 1024);
 
-        // Ingest a known attack file — just verify it parses without crashing
         auto res = ingester.ingest_file("real_datasets/portscan.csv", false, 100);
 
         ASSERT_TRUE(res.rows_parsed > 0);
         ASSERT_TRUE(res.rows_ingested > 0);
-        // Port scan data should have some attack events
         ASSERT_TRUE(res.stats.attack_events > 0 || res.stats.benign_events > 0);
         PASS();
     } catch (const std::exception& e) { FAIL(e.what()); }
@@ -348,7 +354,6 @@ void test_dataset_ingestion() {
 
         uint64_t total = res.tp + res.tn + res.fp + res.fn;
         ASSERT_TRUE(total > 0);
-        // All events should be classified into one of the four categories
         ASSERT_EQ(total, res.rows_ingested);
         PASS();
     } catch (const std::exception& e) { FAIL(e.what()); }
