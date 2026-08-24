@@ -1,7 +1,5 @@
 """Database engine and session with SQLite fallback for local dev."""
 
-import os
-
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
